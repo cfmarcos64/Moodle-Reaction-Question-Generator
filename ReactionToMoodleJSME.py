@@ -25,23 +25,9 @@ try:
     from rdkit.Chem.Draw import rdMolDraw2D
     RDKIT_AVAILABLE = True
 
-except ImportError as e:
-    print("RDKit import error:", e)
-    RDKIT_AVAILABLE = False
-
-
 try:
     import pandas as pd
     PANDAS_AVAILABLE = True
-except ImportError:
-    pd = None
-    PANDAS_AVAILABLE = False
-
-# The requests and numpy imports are already at the top,
-# but we'll check their 'availability' for consistency with the original logic.
-# In a standard environment, they're typically available, but we'll maintain the check structure.
-NCI_CIR_AVAILABLE = (requests is not None)
-NUMPY_AVAILABLE = (np is not None)
 
 # Interface texts in different languages
 TEXTS = {
@@ -205,14 +191,7 @@ def draw_mol_consistent(mol, fixed_bond_length=25.0, padding=10):
 @st.cache_data
 def name_to_smiles(compound_name):
     """Converts a compound name to canonical SMILES using NCI/CIR, returns None on failure."""
-    if not NCI_CIR_AVAILABLE or not Chem:
-        return None
-        
-    compound_name = str(compound_name).strip()
-    if not compound_name:
-        return None
-        
-    try:
+        try:
         encoded_name = requests.utils.quote(compound_name)
         url = f"http://cactus.nci.nih.gov/chemical/structure/{encoded_name}/smiles"
         response = requests.get(url, timeout=10)
@@ -244,8 +223,7 @@ def image_to_base64(img):
 
 def generate_molecule_image(smiles):
     """Generates an image of a single molecule from SMILES."""
-    if not Chem or not rdMolDraw2D or not NUMPY_AVAILABLE:
-        return None, None
+    
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol:
@@ -257,8 +235,6 @@ def generate_molecule_image(smiles):
 
 def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     """Generates a reaction image with the missing compound replaced by a question mark."""
-    if not Chem or not rdMolDraw2D or not NUMPY_AVAILABLE:
-        return None, None
 
     all_smiles = reactants_smiles + products_smiles
     try:
@@ -566,9 +542,6 @@ def search_molecule():
     if not name:
         return
         
-    if not NCI_CIR_AVAILABLE or not RDKIT_AVAILABLE:
-        st.error(texts["search_error_api"])
-        return
 
     with st.spinner('Searching and canonicalizing SMILES with NCI CIR...'):
         smiles = name_to_smiles(name)
@@ -600,9 +573,6 @@ def add_smiles_to_input(target):
 
 # --- 5. Streamlit Interface Layout ---
 
-# Show warning if modules are missing
-if not RDKIT_AVAILABLE or not NCI_CIR_AVAILABLE or not PANDAS_AVAILABLE or not NUMPY_AVAILABLE:
-    st.warning(texts["module_warning"])
 
 ## Language Selector
 st.markdown("###### Select language / Selecciona tu idioma")
@@ -752,6 +722,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
