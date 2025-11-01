@@ -9,13 +9,6 @@ Created on Thu Oct 23 21:29:17 2025
 # with embedded images. It allows the user to define a reaction and a missing molecule.
 
 import streamlit as st
-try:
-    from rdkit import Chem
-    import rdkit
-    st.success(f"RDKit importado! Versión: {rdkit.__version__}")
-except Exception as e:
-    st.error(f"Error importando RDKit: {e}")
-    
 import xml.etree.ElementTree as ET
 import requests
 import io
@@ -73,7 +66,7 @@ TEXTS = {
         "xml_error": "Error al generar el archivo XML: {}",
         "no_questions_info": "Aún no se han añadido preguntas.",
         "question_text": "Dibuja la molécula faltante en la siguiente reacción:",
-        "module_warning": "Advertencia: Los módulos 'rdkit', 'Pillow', 'requests', 'pandas' o 'numpy' no están instalados. No se podrán generar imágenes, buscar SMILES automáticamente o procesar archivos masivos. Instálalos con: 'pip install rdkit-pypi Pillow requests pandas numpy'",
+        "module_warning": "Advertencia: Los módulos 'rdkit', 'Pillow', 'requests', 'pandas' o 'numpy' no están instalados. No se podrán generar imágenes, buscar SMILES automáticamente o procesar archivos masivos. Instálalos con: 'pip install rdkit Pillow requests pandas numpy'",
         "search_label": "Buscar SMILES canónico por nombre de molécula (NCI CIR + RDKit)",
         "search_placeholder": "ej: water",
         "search_button": "Buscar",
@@ -120,7 +113,7 @@ TEXTS = {
         "xml_error": "Error generating XML file: {}",
         "no_questions_info": "No questions have been added yet.",
         "question_text": "Draw the missing molecule in the following reaction:",
-        "module_warning": "Warning: The 'rdkit', 'Pillow', 'requests', 'pandas' or 'numpy' modules are not installed. Images cannot be generated, nor can automatic SMILES search or bulk file processing be performed. Install them with: 'pip install rdkit-pypi Pillow requests pandas numpy'",
+        "module_warning": "Warning: The 'rdkit', 'Pillow', 'requests', 'pandas' or 'numpy' modules are not installed. Images cannot be generated, nor can automatic SMILES search or bulk file processing be performed. Install them with: 'pip install rdkit Pillow requests pandas numpy'",
         "search_label": "Search canonical SMILES by molecule name (NCI CIR + RDKit)",
         "search_placeholder": "e.g.: water",
         "search_button": "Search",
@@ -760,4 +753,5 @@ with list_col:
     else:
 
         st.info(texts["no_questions_info"])
+
 
