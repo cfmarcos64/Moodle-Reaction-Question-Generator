@@ -312,6 +312,26 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 max_h = max(max_h, 50)
                 total_mol_w += 50
     
+from PIL import Image, ImageDraw, ImageFont
+import os
+
+def get_font(size):
+    """Carga una fuente TTF fiable o usa fallback si no está disponible."""
+    # Ruta relativa a la fuente local en tu repo
+    font_path = "fonts/DejaVuSans.ttf"
+    # Si no existe, prueba con fuentes comunes de Linux o la fuente por defecto
+    for candidate in [font_path, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
+        if os.path.exists(candidate):
+            try:
+                return ImageFont.truetype(candidate, size)
+            except Exception:
+                continue
+    # Fallback muy pequeño, así que se escala manualmente
+    return ImageFont.load_default()
+
+
+def dibujar_reaccion(reactants_smiles, products_smiles, unscaled_images,
+                     base_symbol_size, max_w_final, max_h_final):
     # 2. Calculate symbol (' + ' and ' → ') dimensions
     symbols = []
     if len(reactants_smiles) > 1:
@@ -320,17 +340,15 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     if len(products_smiles) > 1:
         symbols.extend([" + "] * (len(products_smiles) - 1))
 
-    try:
-        font_base = ImageFont.truetype("arial.ttf", base_symbol_size)
-    except IOError:
-        font_base = ImageFont.load_default()
-
+    # Usa la fuente estable
+    font_base = get_font(base_symbol_size)
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
     max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] for s in symbols] or [0])
     
+    total_mol_w = sum(img.width for img in unscaled_images)
+    max_h = max(max(img.height for img in unscaled_images), max_symbol_h)
     symbols_width = sum(symbol_widths)
-    max_h = max(max_h, max_symbol_h)
     total_w = total_mol_w + symbols_width
 
     # 3. Scaling
@@ -351,11 +369,8 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     symbol_idx = 0
 
     # 4. Compose final image
-    scaled_font_size = int(base_symbol_size * scale_factor)
-    try:
-        font_scaled = ImageFont.truetype("arial.ttf", scaled_font_size)
-    except IOError:
-        font_scaled = ImageFont.load_default()
+    scaled_font_size = max(10, int(base_symbol_size * scale_factor))
+    font_scaled = get_font(scaled_font_size)
         
     for i, img in enumerate(unscaled_images):
         # Paste molecule/question mark
@@ -752,3 +767,4 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
