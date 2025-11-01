@@ -9,6 +9,13 @@ Created on Thu Oct 23 21:29:17 2025
 # with embedded images. It allows the user to define a reaction and a missing molecule.
 
 import streamlit as st
+try:
+    from rdkit import Chem
+    import rdkit
+    st.success(f"RDKit importado! Versión: {rdkit.__version__}")
+except Exception as e:
+    st.error(f"Error importando RDKit: {e}")
+    
 import xml.etree.ElementTree as ET
 import requests
 import io
@@ -753,3 +760,4 @@ with list_col:
     else:
 
         st.info(texts["no_questions_info"])
+
