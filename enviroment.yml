@@ -1,0 +1,11 @@
+name: chemquiz
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - streamlit
+  - rdkit
+  - pillow
+  - requests
+  - pandas
+  - numpy
