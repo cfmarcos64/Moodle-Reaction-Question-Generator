@@ -2,7 +2,7 @@
 """
 Created on Thu Oct 23 21:29:17 2025
 
-@author: Carlos Fernandez
+@author: Carlos Fernandez Marcos
 """
 
 # This is a Streamlit script to generate Moodle questions about chemical reactions
@@ -751,4 +751,5 @@ with list_col:
                 st.button("🗑️", help=tooltip_text, key=f"delete_{i}", on_click=delete_question, args=(i,))
             st.markdown("---")
     else:
+
         st.info(texts["no_questions_info"])
