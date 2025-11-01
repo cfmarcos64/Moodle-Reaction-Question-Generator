@@ -1,5 +1,5 @@
 streamlit
-rdkit-pypi
+rdkit
 Pillow
 requests 
 pandas
