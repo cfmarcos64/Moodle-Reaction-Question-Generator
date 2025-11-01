@@ -1,6 +1,0 @@
-streamlit
-rdkit
-Pillow
-requests 
-pandas
-numpy
