@@ -24,11 +24,11 @@ try:
     from rdkit.Chem import Draw, rdDepictor
     from rdkit.Chem.Draw import rdMolDraw2D
     RDKIT_AVAILABLE = True
-except ImportError:
-    Chem = None
-    rdDepictor = None
-    rdMolDraw2D = None
+
+except ImportError as e:
+    print("RDKit import error:", e)
     RDKIT_AVAILABLE = False
+
 
 try:
     import pandas as pd
@@ -752,6 +752,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
