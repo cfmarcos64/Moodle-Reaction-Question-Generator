@@ -311,6 +311,14 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 unscaled_images.append(Image.new('RGB', (50, 50), (255, 255, 255)))
                 max_h = max(max_h, 50)
                 total_mol_w += 50
+# 👉 Aquí llamamos a la función que dibuja la reacción completa
+    final_img_b64 = dibujar_reaccion(
+        reactants_smiles, products_smiles, unscaled_images,
+        base_symbol_size, max_w_final, max_h_final
+    )
+
+    # Y la devolvemos
+    return final_img_b64, None
     
 from PIL import Image, ImageDraw, ImageFont
 import os
@@ -767,4 +775,5 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
