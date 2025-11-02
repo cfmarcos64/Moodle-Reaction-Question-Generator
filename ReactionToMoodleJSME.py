@@ -286,7 +286,7 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 avg_h = fixed_bond_length * 3  # valor por defecto si es el primero
         
             # Tamaño base del signo de interrogación
-            q_font_size = int(avg_h * 0.5)  # 70% de la altura media de molécula
+            q_font_size = int(avg_h * 0.6)  # 60% de la altura media de molécula
             q_font_size = max(28, min(q_font_size, 120))  # límites razonables
         
             font_q = get_font(q_font_size)
@@ -360,10 +360,23 @@ def dibujar_reaccion(reactants_smiles, products_smiles, unscaled_images,
         symbols.extend([" + "] * (len(products_smiles) - 1))
 
     # Usa la fuente estable
-    font_base = get_font(base_symbol_size)
+    # 🧠 Calcular tamaño de fuente proporcional al de las moléculas
+    if unscaled_images:
+        avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images)
+    else:
+        avg_h = base_symbol_size * 2.5
+    
+    # Escala base del símbolo (un poco mayor que antes)
+    symbol_font_size = int(avg_h * 0.55)  # 55% de la altura promedio de las moléculas
+    symbol_font_size = max(24, min(symbol_font_size, 100))  # límites seguros
+    
+    font_base = get_font(symbol_font_size)
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-    symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
+    
+    # Medir ancho y alto de cada símbolo con padding
+    symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + int(symbol_font_size * 0.3) for s in symbols]
     max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] for s in symbols] or [0])
+
     
     total_mol_w = sum(img.width for img in unscaled_images)
     max_h = max(max(img.height for img in unscaled_images), max_symbol_h)
@@ -786,6 +799,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
