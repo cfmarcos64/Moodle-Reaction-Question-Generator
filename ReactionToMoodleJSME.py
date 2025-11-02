@@ -280,6 +280,23 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     for i, s in enumerate(all_smiles):
         if i == missing_index:
             # Create question mark image
+            q_font_size = int(fixed_bond_length * 2.5)  # Ajusta según te guste (2.0 - 3.0 suele ir bien)
+            font_q = get_font(q_font_size)
+
+            if q_font_size < 30:
+                q_font_size = 30
+                font_q = get_font(q_font_size)
+
+            temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+            bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            q_w, q_h = text_w + 20, text_h + 20
+            
+            img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
+            dq = ImageDraw.Draw(img_q)
+            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
+            
             try:
                 q_font_size = int(fixed_bond_length * 1.5)
                 font_q = ImageFont.truetype("arial.ttf", q_font_size)
@@ -775,6 +792,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
