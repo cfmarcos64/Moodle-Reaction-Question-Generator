@@ -318,7 +318,7 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     )
 
     # Y la devolvemos
-    return final_img_b64, None
+    return final_img_b64
     
 from PIL import Image, ImageDraw, ImageFont
 import os
@@ -775,5 +775,6 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
