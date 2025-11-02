@@ -279,26 +279,37 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     # 1. Generate individual molecule/question mark images
     for i, s in enumerate(all_smiles):
         if i == missing_index:
-            # Create question mark image
-            q_font_size = int(fixed_bond_length * 2.5)  # Ajusta según te guste (2.0 - 3.0 suele ir bien)
+            # 🧠 Determinar tamaño proporcional al de las moléculas ya generadas
+            if unscaled_images:
+                avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images)
+            else:
+                avg_h = fixed_bond_length * 3  # valor por defecto si es el primero
+        
+            # Tamaño base del signo de interrogación
+            q_font_size = int(avg_h * 0.7)  # 70% de la altura media de molécula
+            q_font_size = max(28, min(q_font_size, 120))  # límites razonables
+        
             font_q = get_font(q_font_size)
-
-            if q_font_size < 30:
-                q_font_size = 30
-                font_q = get_font(q_font_size)
-
+        
+            # Calcular bounding box del "?"
             temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
             bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
             text_w = bbox[2] - bbox[0]
             text_h = bbox[3] - bbox[1]
-            q_w, q_h = text_w + 20, text_h + 20
-            
+        
+            # Crear imagen del "?"
+            padding = int(q_font_size * 0.4)
+            q_w, q_h = text_w + padding, text_h + padding
+        
             img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
             dq = ImageDraw.Draw(img_q)
-            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))          
+            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
+        
+            # Añadir a la lista
             unscaled_images.append(img_q)
             max_h = max(max_h, q_h)
             total_mol_w += q_w
+
         else:
             # Generate molecule image
             mol = Chem.MolFromSmiles(s)
@@ -775,6 +786,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
