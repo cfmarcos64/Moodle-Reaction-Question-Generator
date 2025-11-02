@@ -233,7 +233,14 @@ def name_to_smiles(compound_name):
 
 def escape_smiles(smiles):
     """Escapes special SMILES characters for Moodle's pmatchjme answer format."""
-    return smiles.replace("(", "\\(").replace(")", "\\)").replace("[", "\\[").replace("]", "\\]").replace("\\", "\\\\")
+    if smiles is None:
+        return ""
+    s = str(smiles)
+    # Scapes first existing backslashes
+    s = s.replace("\\", "\\\\")
+    # Then scapes brackets
+    s = s.replace("(", "\\(").replace(")", "\\)").replace("[", "\\[").replace("]", "\\]")
+    return s
 
 def image_to_base64(img):
     """Converts a PIL Image to a base64 encoded string and mimetype."""
@@ -787,6 +794,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
