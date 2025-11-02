@@ -283,8 +283,8 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
             q_font_size = int(fixed_bond_length * 2.5)  # Ajusta según te guste (2.0 - 3.0 suele ir bien)
             font_q = get_font(q_font_size)
 
-            if q_font_size < 30:
-                q_font_size = 30
+            if q_font_size < 100:
+                q_font_size = 100
                 font_q = get_font(q_font_size)
 
             temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
@@ -792,6 +792,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
