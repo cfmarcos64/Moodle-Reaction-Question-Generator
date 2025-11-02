@@ -286,7 +286,7 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 avg_h = fixed_bond_length * 3  # valor por defecto si es el primero
         
             # Tamaño base del signo de interrogación
-            q_font_size = int(avg_h * 0.7)  # 70% de la altura media de molécula
+            q_font_size = int(avg_h * 0.5)  # 70% de la altura media de molécula
             q_font_size = max(28, min(q_font_size, 120))  # límites razonables
         
             font_q = get_font(q_font_size)
@@ -786,6 +786,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
