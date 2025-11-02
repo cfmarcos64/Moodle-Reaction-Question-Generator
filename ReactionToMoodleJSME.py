@@ -279,15 +279,15 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     # 1. Generate individual molecule/question mark images
     for i, s in enumerate(all_smiles):
         if i == missing_index:
-            # 🧠 Determinar tamaño proporcional al de las moléculas ya generadas
+            # Calculate size proportional to generated molecules
             if unscaled_images:
                 avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images)
             else:
-                avg_h = fixed_bond_length * 3  # valor por defecto si es el primero
+                avg_h = fixed_bond_length * 3  # default value if it is the first
         
-            # Tamaño base del signo de interrogación
-            q_font_size = int(avg_h * 0.6)  # 60% de la altura media de molécula
-            q_font_size = max(28, min(q_font_size, 120))  # límites razonables
+            # Base size of the question mark
+            q_font_size = int(avg_h * 0.6)  # 60% mean size of the molecule
+            q_font_size = max(28, min(q_font_size, 120))  # reasonable limits
         
             font_q = get_font(q_font_size)
         
@@ -305,7 +305,7 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
             dq = ImageDraw.Draw(img_q)
             dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
         
-            # Añadir a la lista
+            # Add to the list
             unscaled_images.append(img_q)
             max_h = max(max_h, q_h)
             total_mol_w += q_w
@@ -322,34 +322,34 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 unscaled_images.append(Image.new('RGB', (50, 50), (255, 255, 255)))
                 max_h = max(max_h, 50)
                 total_mol_w += 50
-# 👉 Aquí llamamos a la función que dibuja la reacción completa
-    final_img_b64 = dibujar_reaccion(
+# Here we call the function that draws the whole reaction
+    final_img_b64 = draw_reaction(
         reactants_smiles, products_smiles, unscaled_images,
         base_symbol_size, max_w_final, max_h_final
     )
 
-    # Y la devolvemos
+    # And return
     return final_img_b64
     
 from PIL import Image, ImageDraw, ImageFont
 import os
 
 def get_font(size):
-    """Carga una fuente TTF fiable o usa fallback si no está disponible."""
-    # Ruta relativa a la fuente local en tu repo
+    """Update TTF font or use fallback if not available."""
+    # Relative path to the local font in the repo
     font_path = "fonts/DejaVuSans.ttf"
-    # Si no existe, prueba con fuentes comunes de Linux o la fuente por defecto
+    
     for candidate in [font_path, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
         if os.path.exists(candidate):
             try:
                 return ImageFont.truetype(candidate, size)
             except Exception:
                 continue
-    # Fallback muy pequeño, así que se escala manualmente
+    # Fallback very small, thus it is manually scaled
     return ImageFont.load_default()
 
 
-def dibujar_reaccion(reactants_smiles, products_smiles, unscaled_images,
+def draw_reaction(reactants_smiles, products_smiles, unscaled_images,
                      base_symbol_size, max_w_final, max_h_final):
     # 2. Calculate symbol (' + ' and ' → ') dimensions
     symbols = []
@@ -359,8 +359,8 @@ def dibujar_reaccion(reactants_smiles, products_smiles, unscaled_images,
     if len(products_smiles) > 1:
         symbols.extend([" + "] * (len(products_smiles) - 1))
 
-    # Usa la fuente estable
-    # 🧠 Calcular tamaño de fuente proporcional al de las moléculas
+    # Use estable font
+    # Calculate size proportional to molecule size
     font_base = get_font(base_symbol_size)
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
@@ -787,6 +787,7 @@ with list_col:
             st.markdown("---")
     else:
         st.info(texts["no_questions_info"])
+
 
 
 
