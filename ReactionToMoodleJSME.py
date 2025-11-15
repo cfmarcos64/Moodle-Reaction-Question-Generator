@@ -206,19 +206,14 @@ def draw_mol_consistent(mol, fixed_bond_length=25.0, padding=10):
 # 4.3. Main image generation function
 def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     """Generates a reaction image with the missing compound replaced by a question mark."""
-    # The fix for NUMPY_AVAILABLE is applied in Section 1, allowing this check to run
     if not Chem or not rdMolDraw2D or not NUMPY_AVAILABLE:
-        # Returning a placeholder base64 string if dependencies are missing
-        img = Image.new('RGB', (500, 100), (240, 240, 240))
-        d = ImageDraw.Draw(img)
-        d.text((10, 10), "Error: RDKit/Numpy not available", fill=(0,0,0))
-        return image_to_base64(img)
+        return None, None
 
     all_smiles = reactants_smiles + products_smiles
     try:
         missing_index = all_smiles.index(missing_smiles)
     except ValueError:
-        return None # Missing SMILES not in reaction
+        return None, None # Missing SMILES not in reaction
 
     fixed_bond_length = 25.0
     padding = 10
@@ -233,26 +228,37 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     # 1. Generate individual molecule/question mark images
     for i, s in enumerate(all_smiles):
         if i == missing_index:
-            # Create question mark image
-            try:
-                q_font_size = int(fixed_bond_length * 1.5)
-                font_q = ImageFont.truetype("arial.ttf", q_font_size)
-            except IOError:
-                font_q = ImageFont.load_default()
-                q_font_size = 36
-
+            # Calculate size proportional to generated molecules
+            if unscaled_images:
+                avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images)
+            else:
+                avg_h = fixed_bond_length * 3  # default value if it is the first
+        
+            # Base size of the question mark
+            q_font_size = int(avg_h * 0.6)  # 60% mean size of the molecule
+            q_font_size = max(28, min(q_font_size, 120))  # reasonable limits
+        
+            font_q = get_font(q_font_size)
+        
+            # Calcular bounding box del "?"
             temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
             bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
             text_w = bbox[2] - bbox[0]
             text_h = bbox[3] - bbox[1]
-            q_w, q_h = text_w + 20, text_h + 20
-            
+        
+            # Crear imagen del "?"
+            padding = int(q_font_size * 0.4)
+            q_w, q_h = text_w + padding, text_h + padding
+        
             img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
             dq = ImageDraw.Draw(img_q)
             dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
+        
+            # Add to the list
             unscaled_images.append(img_q)
             max_h = max(max_h, q_h)
             total_mol_w += q_w
+
         else:
             # Generate molecule image
             mol = Chem.MolFromSmiles(s)
@@ -265,7 +271,35 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
                 unscaled_images.append(Image.new('RGB', (50, 50), (255, 255, 255)))
                 max_h = max(max_h, 50)
                 total_mol_w += 50
+# Here we call the function that draws the whole reaction
+    final_img_b64 = draw_reaction(
+        reactants_smiles, products_smiles, unscaled_images,
+        base_symbol_size, max_w_final, max_h_final
+    )
+
+    # And return
+    return final_img_b64
     
+from PIL import Image, ImageDraw, ImageFont
+import os
+
+def get_font(size):
+    """Update TTF font or use fallback if not available."""
+    # Relative path to the local font in the repo
+    font_path = "fonts/DejaVuSans.ttf"
+    
+    for candidate in [font_path, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
+        if os.path.exists(candidate):
+            try:
+                return ImageFont.truetype(candidate, size)
+            except Exception:
+                continue
+    # Fallback very small, thus it is manually scaled
+    return ImageFont.load_default()
+
+
+def draw_reaction(reactants_smiles, products_smiles, unscaled_images,
+                     base_symbol_size, max_w_final, max_h_final):
     # 2. Calculate symbol (' + ' and ' → ') dimensions
     symbols = []
     if len(reactants_smiles) > 1:
@@ -274,17 +308,16 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     if len(products_smiles) > 1:
         symbols.extend([" + "] * (len(products_smiles) - 1))
 
-    try:
-        font_base = ImageFont.truetype("arial.ttf", base_symbol_size)
-    except IOError:
-        font_base = ImageFont.load_default()
-
+    # Use estable font
+    # Calculate size proportional to molecule size
+    font_base = get_font(base_symbol_size)
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
     max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] for s in symbols] or [0])
     
+    total_mol_w = sum(img.width for img in unscaled_images)
+    max_h = max(max(img.height for img in unscaled_images), max_symbol_h)
     symbols_width = sum(symbol_widths)
-    max_h = max(max_h, max_symbol_h)
     total_w = total_mol_w + symbols_width
 
     # 3. Scaling
@@ -305,11 +338,8 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     symbol_idx = 0
 
     # 4. Compose final image
-    scaled_font_size = int(base_symbol_size * scale_factor)
-    try:
-        font_scaled = ImageFont.truetype("arial.ttf", scaled_font_size)
-    except IOError:
-        font_scaled = ImageFont.load_default()
+    scaled_font_size = max(10, int(base_symbol_size * scale_factor))
+    font_scaled = get_font(scaled_font_size)
         
     for i, img in enumerate(unscaled_images):
         # Paste molecule/question mark
@@ -330,7 +360,6 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
             symbol_idx += 1
             
     return image_to_base64(final_img)
-
 def get_smiles_from_name(name):
     try:
         url = f"https://cactus.nci.nih.gov/chemical/structure/{name}/smiles"
