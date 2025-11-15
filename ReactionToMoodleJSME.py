@@ -44,7 +44,7 @@ TEXTS = {
     "es": {
         "title": "Generador de Preguntas de Reacción para Moodle",
         "intro": "Crea preguntas con JSME. Normaliza antes de exportar.",
-        "change_language": "Change language to ", 
+        "change_language": "Change language to English", 
         "tab_manual": "Entrada Manual",
         "tab_bulk": "Carga Masiva",
         "search_title": "Búsqueda por Nombre (NCI CIR)",
@@ -88,7 +88,7 @@ TEXTS = {
     "en": {
         "title": "Moodle Reaction Question Generator",
         "intro": "Create questions with JSME. Normalize before export.",
-        "change_language": "Cambiar idioma a ", 
+        "change_language": "Cambiar idioma a Español", 
         "tab_manual": "Manual Entry",
         "tab_bulk": "Bulk Upload",
         "search_title": "Search by Name (NCI CIR)",
@@ -148,6 +148,11 @@ if "show_jsme" not in st.session_state:
     st.session_state.show_jsme = False
 if "normalized_smiles" not in st.session_state:
     st.session_state.normalized_smiles = {}
+if "clear_search" not in st.session_state:  # ← AÑADIR ESTA LÍNEA
+    st.session_state.clear_search = False
+if "search_counter" not in st.session_state:
+    st.session_state.search_counter = 0
+
 
 texts = TEXTS[st.session_state.lang]
 
@@ -415,16 +420,37 @@ def search_compound():
         st.session_state.search_result = smiles
     else:
         st.error(texts["name_error"].format(name))
+        
+    if "clear_search" not in st.session_state:
+        st.session_state.clear_search = False
+        
+def search_compound_wrapper(counter):
+    """Wrapper para search_compound que usa la key dinámica."""
+    name = st.session_state.get(f"search_input_{counter}", "").strip()
+    if not name:
+        return
+    with st.spinner("Buscando..."):
+        smiles = get_smiles_from_name(name)
+    if smiles:
+        st.session_state.search_result = smiles
+    else:
+        st.error(texts["name_error"].format(name))
 
 # --- 6. UI ---
 st.set_page_config(page_title=texts["title"], layout="wide")
 
 # Language switch
-col_lang, _ = st.columns([1, 10])
+col_lang, _ = st.columns([3, 2])
 with col_lang:
-    if st.button("EN" if st.session_state.lang == "es" else "ES"):
-        st.session_state.lang = "en" if st.session_state.lang == "es" else "es"
-        st.rerun()
+    # Usar columnas para colocar texto y botón en la misma línea
+    txt_col, btn_col = st.columns([2, 2], vertical_alignment="center")
+    with txt_col:
+        lang_text = texts["change_language"]
+        st.markdown(f"**{lang_text}**", unsafe_allow_html=True)
+    with btn_col:
+        if st.button("EN" if st.session_state.lang == "es" else "ES"):
+            st.session_state.lang = "en" if st.session_state.lang == "es" else "es"
+            st.rerun()
 
 st.title(texts["title"])
 st.markdown(texts["intro"])
@@ -439,19 +465,19 @@ with input_col:
     with tab1:
         st.subheader(texts["search_title"])
 
-        # BÚSQUEDA SIN SALTO
+        # BÚSQUEDA SIN SALTO - Key dinámica que cambia para resetear el widget
         col_search, col_btn = st.columns([4, 1])
         with col_search:
             st.text_input(
                 texts["name_input_label"],
-                key="search_input",
+                key=f"search_input_{st.session_state.search_counter}",  # ← Key dinámica
                 label_visibility="collapsed",
-                on_change=search_compound
+                on_change=lambda: search_compound_wrapper(st.session_state.search_counter)
             )
         with col_btn:
             if st.button(texts["search_button"], use_container_width=True):
-                search_compound()
-
+                search_compound_wrapper(st.session_state.search_counter)
+        
         # RESULTADO
         if st.session_state.get("search_result"):
             st.markdown(
@@ -463,19 +489,21 @@ with input_col:
                 """,
                 unsafe_allow_html=True
             )
-
+        
             c1, c2 = st.columns(2)
             with c1:
                 if st.button(texts["add_to_reactants"], use_container_width=True, key="add_r"):
                     current = st.session_state.reactants_str
                     st.session_state.reactants_str = f"{current}, {st.session_state.search_result}".strip(", ")
                     st.session_state.search_result = None
+                    st.session_state.search_counter += 1  # ← Incrementar contador (resetea widget)
                     st.rerun()
             with c2:
                 if st.button(texts["add_to_products"], use_container_width=True, key="add_p"):
                     current = st.session_state.products_str
                     st.session_state.products_str = f"{current}, {st.session_state.search_result}".strip(", ")
                     st.session_state.search_result = None
+                    st.session_state.search_counter += 1  # ← Incrementar contador (resetea widget)
                     st.rerun()
 
         st.markdown("---")
@@ -620,6 +648,7 @@ with list_col:
                     file_name="reaction_questions.xml",
                     mime="application/xml",
                     use_container_width=True,
+                    icon= ":material/file_save:",
                     type="primary"
                 )
             except Exception as e:
