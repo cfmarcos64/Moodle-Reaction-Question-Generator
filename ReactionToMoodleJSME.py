@@ -160,42 +160,48 @@ def image_to_base64(img):
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
+
 # 4.2. RDKit drawing function that ensures consistent bond length (REPLACING draw_mol_image)
-def draw_mol_consistent(mol, fixed_bond_length, padding, width=300, height=300):
-    if not mol or not RDKIT_AVAILABLE:
-        img = Image.new('RGB', (width, height), (240, 240, 240))
-        return img
+def draw_mol_consistent(mol, fixed_bond_length=25.0, padding=10):
+    """Draws a molecule consistently, returns a cropped PIL Image."""
+    if not mol or not rdMolDraw2D or not NUMPY_AVAILABLE:
+        return Image.new('RGB', (50, 50), (255, 255, 255))
     
-    # 1. Compute 2D coordinates
-    rdDepictor.Compute2DCoords(mol)
+    if mol.GetNumConformers() == 0:
+        rdDepictor.Compute2DCoords(mol)
     
-    # 2. Setup drawer with fixed bond length
-    drawer = rdMolDraw2D.MolDraw2DCairo(width, height)
-    drawer.SetFontSize(0.8)
-    drawer.SetLineWidth(2.0)
-    # Set the crucial fixed bond length for proportional drawing
-    drawer.drawOptions().fixedBondLength = fixed_bond_length 
+    opts = rdMolDraw2D.MolDrawOptions()
+    opts.bondLineWidth = max(1, int(fixed_bond_length * 0.1))
+    opts.fixedBondLength = fixed_bond_length
+    opts.fixedFontSize = int(fixed_bond_length * 0.55)
+    opts.padding = 0.1
+    opts.addStereoAnnotation = False
+    opts.clearBackground = True
     
-    # 3. Draw and get PNG bytes
+    large_size = 2048
+    drawer = rdMolDraw2D.MolDraw2DCairo(large_size, large_size)
+    drawer.SetDrawOptions(opts)
     drawer.DrawMolecule(mol)
     drawer.FinishDrawing()
-    png_data = drawer.GetDrawingText()
     
-    # 4. Load into PIL and crop (to remove RDKit's excess white space)
-    img_pil = Image.open(io.BytesIO(png_data)).convert("RGB")
+    bio = io.BytesIO(drawer.GetDrawingText())
+    img = Image.open(bio).convert('RGB')
     
-    # Simple cropping logic (requires numpy for getbbox)
-    if img_pil.getbbox():
-        cropped_img = img_pil.crop(img_pil.getbbox())
+    # Trim whitespace
+    img_array = np.array(img)
+    mask = np.any(img_array != [255, 255, 255], axis=-1)
+    y_coords, x_coords = np.nonzero(mask)
+    
+    if len(y_coords) == 0:
+        return Image.new('RGB', (50, 50), (255, 255, 255))
         
-        # Add back required padding
-        final_w = cropped_img.width + 2 * padding
-        final_h = cropped_img.height + 2 * padding
-        final_img = Image.new('RGB', (final_w, final_h), (255, 255, 255))
-        final_img.paste(cropped_img, (padding, padding))
-        return final_img
+    y0 = max(0, y_coords.min() - padding)
+    x0 = max(0, x_coords.min() - padding)
+    y1 = min(img.height, y_coords.max() + 1 + padding)
+    x1 = min(img.width, x_coords.max() + 1 + padding)
     
-    return img_pil # Fallback
+    trimmed = img.crop((x0, y0, x1, y1))
+    return trimmed
 
 # 4.3. Main image generation function
 def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
@@ -229,40 +235,33 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
         if i == missing_index:
             # Create question mark image
             try:
-                # Use a standard font if available
                 q_font_size = int(fixed_bond_length * 1.5)
                 font_q = ImageFont.truetype("arial.ttf", q_font_size)
             except IOError:
-                # Fallback to default font
                 font_q = ImageFont.load_default()
                 q_font_size = 36
 
             temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-            # Adjust bbox calculation for consistent font measurement
             bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
             text_w = bbox[2] - bbox[0]
             text_h = bbox[3] - bbox[1]
-            # Add horizontal padding to the question mark box
-            q_w, q_h = text_w + 2 * padding, text_h + 2 * padding
+            q_w, q_h = text_w + 20, text_h + 20
             
             img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
             dq = ImageDraw.Draw(img_q)
-            # Center the question mark within its padded box
-            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2 - 5), "?", font=font_q, fill=(0, 0, 0))
+            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
             unscaled_images.append(img_q)
             max_h = max(max_h, q_h)
             total_mol_w += q_w
         else:
-            # Generate molecule image using proportional function
+            # Generate molecule image
             mol = Chem.MolFromSmiles(s)
             if mol:
-                # Calling the new proportional drawing function
-                img = draw_mol_consistent(mol, fixed_bond_length, padding) 
+                img = draw_mol_consistent(mol, fixed_bond_length, padding)
                 unscaled_images.append(img)
                 max_h = max(max_h, img.height)
                 total_mol_w += img.width
             else:
-                # Fallback for invalid SMILES
                 unscaled_images.append(Image.new('RGB', (50, 50), (255, 255, 255)))
                 max_h = max(max_h, 50)
                 total_mol_w += 50
@@ -281,12 +280,11 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
         font_base = ImageFont.load_default()
 
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-    # Calculate symbol width using the actual font and text, plus padding
-    symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] - draw_temp.textbbox((0, 0), s, font=font_base)[0] + int(10) for s in symbols]
-    max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] - draw_temp.textbbox((0, 0), s, font=font_base)[1] for s in symbols] or [0])
+    symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
+    max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] for s in symbols] or [0])
     
     symbols_width = sum(symbol_widths)
-    max_h = max(max_h, max_symbol_h + 2 * padding) # Add padding to max symbol height
+    max_h = max(max_h, max_symbol_h)
     total_w = total_mol_w + symbols_width
 
     # 3. Scaling
@@ -294,21 +292,20 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     if total_w > max_w_final:
         scale_factor = max_w_final / total_w
     
-    # Check if height needs to limit scaling more aggressively
     scaled_h = max_h * scale_factor
     if scaled_h > max_h_final:
         scale_factor = max_h_final / max_h
         
-    final_w = int(total_w * scale_factor) + 40 # Add margin
-    final_h = int(max_h * scale_factor) + 40 # Add margin
+    final_w = int(total_w * scale_factor) + 40
+    final_h = int(max_h * scale_factor) + 40
     
     final_img = Image.new('RGB', (final_w, final_h), (255, 255, 255))
     draw = ImageDraw.Draw(final_img)
-    x_offset = 20 # Initial margin
+    x_offset = 20
     symbol_idx = 0
 
     # 4. Compose final image
-    scaled_font_size = max(10, int(base_symbol_size * scale_factor))
+    scaled_font_size = int(base_symbol_size * scale_factor)
     try:
         font_scaled = ImageFont.truetype("arial.ttf", scaled_font_size)
     except IOError:
@@ -317,13 +314,7 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
     for i, img in enumerate(unscaled_images):
         # Paste molecule/question mark
         sf_w, sf_h = int(img.width * scale_factor), int(img.height * scale_factor)
-        # Ensure dimensions are positive
-        sf_w = max(1, sf_w)
-        sf_h = max(1, sf_h)
-        
-        img_to_paste = img.resize((sf_w, sf_h), Image.Resampling.LANCZOS)
-        
-        # Center vertically
+        img_to_paste = img.resize((sf_w or 1, sf_h or 1), Image.Resampling.LANCZOS)
         y_pos = (final_h - sf_h) // 2
         final_img.paste(img_to_paste, (int(x_offset), y_pos))
         x_offset += sf_w
@@ -331,21 +322,11 @@ def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
         # Draw symbol
         if i < len(unscaled_images) - 1:
             symbol_text = symbols[symbol_idx]
-            
-            # Recalculate symbol positioning using the scaled font
             bbox = draw.textbbox((0, 0), symbol_text, font=font_scaled)
-            text_w_s = bbox[2] - bbox[0]
-            text_h_s = bbox[3] - bbox[1]
-            
-            # Center the symbol vertically
-            y_pos_s = (final_h - text_h_s) // 2
-            
-            # Add a small buffer before drawing the symbol
-            symbol_start_x = int(x_offset + 5 * scale_factor)
-            draw.text((symbol_start_x, y_pos_s), symbol_text, font=font_scaled, fill=(0, 0, 0))
-            
-            # Advance offset by symbol width plus padding
-            x_offset = symbol_start_x + text_w_s + int(5 * scale_factor)
+            text_h = bbox[3] - bbox[1]
+            y_pos_s = (final_h - text_h) // 2
+            draw.text((int(x_offset + 5), y_pos_s), symbol_text, font=font_scaled, fill=(0, 0, 0))
+            x_offset += (bbox[2] - bbox[0]) + int(10 * scale_factor)
             symbol_idx += 1
             
     return image_to_base64(final_img)
