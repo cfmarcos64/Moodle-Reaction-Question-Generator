@@ -1,16 +1,8 @@
-<<<<<<< HEAD
-streamlit>=1.28.0
-=======
 streamlit
->>>>>>> 50c35429c436af6b2a71b5106e3a4bd9bf7a88fa
 rdkit
 Pillow
 requests
 pandas
 numpy
-<<<<<<< HEAD
-openpyxl
-=======
 openpyxl
 xlrd
->>>>>>> 50c35429c436af6b2a71b5106e3a4bd9bf7a88fa
