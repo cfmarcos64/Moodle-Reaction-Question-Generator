@@ -17,64 +17,53 @@ interface State {
   jsmeLoaded: boolean;
   processing: boolean;
   lastProcessedSmiles: string;
+  error: string | null;
 }
 
 class JSMEComponent extends StreamlitComponentBase<State> {
   private jsmeApplet: any = null;
   private isProcessing: boolean = false;
-  private hasInitialized: boolean = false;
+  private mountAttempted: boolean = false;
 
   constructor(props: any) {
     super(props);
     this.state = { 
       jsmeLoaded: false,
       processing: false,
-      lastProcessedSmiles: ""
+      lastProcessedSmiles: "",
+      error: null
     };
   }
 
   componentDidMount(): void {
-    // Evitar inicialización múltiple
-    if (this.hasInitialized) {
-      console.log("Already initialized, skipping...");
-      return;
-    }
-    
-    this.hasInitialized = true;
-    
-    // Definir la función global jsmeOnLoad que JSME espera
-    if (!window.jsmeOnLoad) {
-      window.jsmeOnLoad = () => {
-        console.log("JSME library loaded via jsmeOnLoad callback");
-      };
-    }
-    
-    // Notificar a Streamlit que el componente está listo PRIMERO
+    // CRÍTICO: Registrar el componente INMEDIATAMENTE
     Streamlit.setComponentReady();
     Streamlit.setFrameHeight(80);
     
-    // Luego cargar JSME
+    if (this.mountAttempted) {
+      console.log("Component already mounted, skipping initialization");
+      return;
+    }
+    
+    this.mountAttempted = true;
+    
+    // Definir jsmeOnLoad si no existe
+    if (!window.jsmeOnLoad) {
+      window.jsmeOnLoad = () => {
+        console.log("JSME library loaded via jsmeOnLoad");
+      };
+    }
+    
+    // Cargar JSME
     this.loadJSME();
   }
 
   componentWillUnmount(): void {
-    this.hasInitialized = false;
-  }
-
-  render(): void {
-    const currentSmiles = this.props.args?.smiles || '';
-    
-    // Solo procesar si cambió y JSME está listo
-    if (currentSmiles !== this.state.lastProcessedSmiles && 
-        this.jsmeApplet && 
-        this.state.jsmeLoaded && 
-        !this.isProcessing) {
-      this.processSmiles(currentSmiles);
-    }
+    this.mountAttempted = false;
   }
 
   loadJSME = (): void => {
-    // Si ya existe una instancia global, reutilizarla
+    // Reutilizar instancia global si existe
     if (window.jsmeAppletInstance) {
       console.log("Using existing JSME instance");
       this.jsmeApplet = window.jsmeAppletInstance;
@@ -84,19 +73,19 @@ class JSMEComponent extends StreamlitComponentBase<State> {
         const smiles = this.props.args?.smiles || '';
         if (smiles) {
           this.processSmiles(smiles);
+        } else {
+          Streamlit.setComponentValue("");
         }
       }, 100);
       return;
     }
     
-    // Verificar si JSME ya está cargado
     if (window.JSApplet) {
-      console.log("JSME already loaded");
+      console.log("JSApplet already available");
       this.initJSME();
       return;
     }
 
-    // Verificar si el script ya existe
     const existingScript = document.querySelector('script[src*="jsme.nocache.js"]');
     if (existingScript) {
       console.log("JSME script already in DOM, waiting...");
@@ -114,6 +103,8 @@ class JSMEComponent extends StreamlitComponentBase<State> {
     };
     script.onerror = (error) => {
       console.error("Error loading JSME:", error);
+      this.setState({ error: "Error loading JSME library" });
+      Streamlit.setComponentValue("");
     };
     
     document.head.appendChild(script);
@@ -128,6 +119,8 @@ class JSMEComponent extends StreamlitComponentBase<State> {
 
     if (attempts > 100) {
       console.error("Timeout waiting for JSME");
+      this.setState({ error: "Timeout loading JSME" });
+      Streamlit.setComponentValue("");
       return;
     }
 
@@ -138,7 +131,6 @@ class JSMEComponent extends StreamlitComponentBase<State> {
     try {
       console.log("Initializing JSME applet...");
       
-      // Crear contenedor oculto si no existe
       let hiddenDiv = document.getElementById('jsme-hidden-container');
       if (!hiddenDiv) {
         hiddenDiv = document.createElement('div');
@@ -151,18 +143,14 @@ class JSMEComponent extends StreamlitComponentBase<State> {
         document.body.appendChild(hiddenDiv);
       }
 
-      // Crear el applet JSME con opciones más permisivas
       this.jsmeApplet = new window.JSApplet.JSME("jsme-hidden-container", "400px", "400px", {
         options: "oldlook,star"
       });
 
-      // Guardar instancia global
       window.jsmeAppletInstance = this.jsmeApplet;
-
       console.log("JSME applet created successfully");
       this.setState({ jsmeLoaded: true });
       
-      // Esperar más tiempo para que JSME se inicialice completamente
       setTimeout(() => {
         const smiles = this.props.args?.smiles || '';
         if (smiles && smiles.trim() !== '') {
@@ -171,10 +159,12 @@ class JSMEComponent extends StreamlitComponentBase<State> {
         } else {
           Streamlit.setComponentValue("");
         }
-      }, 1000); // Aumentado a 1 segundo
+      }, 1000);
 
     } catch (error) {
       console.error("Error initializing JSME:", error);
+      this.setState({ error: "Error initializing JSME" });
+      Streamlit.setComponentValue("");
     }
   }
 
@@ -192,49 +182,44 @@ class JSMEComponent extends StreamlitComponentBase<State> {
       
       if (!smiles || smiles.trim() === '') {
         Streamlit.setComponentValue("");
+        this.isProcessing = false;
+        this.setState({ processing: false });
         return;
       }
 
-      // Limpiar el applet primero
       this.jsmeApplet.clear();
       
-      // Esperar un momento antes de cargar
       setTimeout(() => {
         try {
-          // Cargar el SMILES en JSME
           this.jsmeApplet.readGenericMolecularInput(smiles);
           
-          // Esperar a que JSME procese
           setTimeout(() => {
             try {
-              // Obtener el SMILES procesado
               const processedSmiles = this.jsmeApplet.smiles();
-              console.log("Raw processed SMILES:", processedSmiles);
+              console.log("Processed SMILES:", processedSmiles);
               
-              // Verificar si realmente obtuvimos algo
               if (processedSmiles && processedSmiles.trim() !== '') {
-                console.log("Valid processed SMILES:", processedSmiles);
                 Streamlit.setComponentValue(processedSmiles);
               } else {
-                console.warn("JSME returned empty SMILES, using original");
+                console.warn("Empty SMILES, using original");
                 Streamlit.setComponentValue(smiles);
               }
             } catch (err) {
-              console.error("Error getting SMILES from JSME:", err);
+              console.error("Error getting SMILES:", err);
               Streamlit.setComponentValue(smiles);
             } finally {
               this.isProcessing = false;
               this.setState({ processing: false });
             }
-          }, 300); // Dar tiempo a JSME para procesar
+          }, 500);
           
         } catch (err) {
-          console.error("Error reading SMILES into JSME:", err);
+          console.error("Error reading SMILES:", err);
           Streamlit.setComponentValue(smiles);
           this.isProcessing = false;
           this.setState({ processing: false });
         }
-      }, 100);
+      }, 200);
       
     } catch (error) {
       console.error("Error processing SMILES:", error);
@@ -244,8 +229,33 @@ class JSMEComponent extends StreamlitComponentBase<State> {
     }
   }
 
-  public render = (): ReactNode => {
-    const { jsmeLoaded, processing } = this.state;
+  public render(): ReactNode {
+    const { jsmeLoaded, processing, error } = this.state;
+    
+    // Verificar si hay nuevos props y procesar
+    const currentSmiles = this.props.args?.smiles || '';
+    if (currentSmiles !== this.state.lastProcessedSmiles && 
+        this.jsmeApplet && 
+        this.state.jsmeLoaded && 
+        !this.isProcessing) {
+      // Programar procesamiento para el siguiente ciclo
+      setTimeout(() => this.processSmiles(currentSmiles), 0);
+    }
+
+    if (error) {
+      return (
+        <div style={{
+          padding: '8px 12px',
+          backgroundColor: '#fee',
+          borderRadius: '4px',
+          textAlign: 'center',
+          fontSize: '13px',
+          color: '#c33'
+        }}>
+          ❌ {error}
+        </div>
+      );
+    }
 
     let statusText = '⏳ Cargando JSME...';
     let bgColor = '#f0f0f0';

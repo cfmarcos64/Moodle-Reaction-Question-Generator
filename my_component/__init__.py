@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 
 # Cambiar a True para producción (Streamlit Cloud)
 # Cambiar a False para desarrollo local
-_RELEASE = False
+_RELEASE = True
 
 if not _RELEASE:
     _component_func = components.declare_component(
@@ -36,17 +36,9 @@ def jsme_editor(smiles, key=None):
     -------
     str
         El código SMILES procesado y normalizado por JSME.
-        Retorna cadena vacía si el procesamiento falla.
-    
-    Example
-    -------
-    >>> from my_component import jsme_editor
-    >>> 
-    >>> # Procesar un SMILES
-    >>> original_smiles = "CC(C)Cc1ccc(cc1)C(C)C(O)=O"
-    >>> processed_smiles = jsme_editor(original_smiles, key="molecule_1")
-    >>> print(processed_smiles)
     """
+    # Asegurar que siempre devuelve algo
     component_value = _component_func(smiles=smiles, key=key, default="")
     
-    return component_value
+    # Si no hay valor, devolver el SMILES original
+    return component_value if component_value else smiles

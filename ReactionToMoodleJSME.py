@@ -44,6 +44,7 @@ TEXTS = {
     "es": {
         "title": "Generador de Preguntas de Reacción para Moodle",
         "intro": "Crea preguntas con JSME. Normaliza antes de exportar.",
+        "change_language": "Change language to ", 
         "tab_manual": "Entrada Manual",
         "tab_bulk": "Carga Masiva",
         "search_title": "Búsqueda por Nombre (NCI CIR)",
@@ -87,6 +88,7 @@ TEXTS = {
     "en": {
         "title": "Moodle Reaction Question Generator",
         "intro": "Create questions with JSME. Normalize before export.",
+        "change_language": "Cambiar idioma a ", 
         "tab_manual": "Manual Entry",
         "tab_bulk": "Bulk Upload",
         "search_title": "Search by Name (NCI CIR)",
