@@ -67,7 +67,6 @@ The `requirements.txt` file includes:
 The repository is organized into two main parts: the Streamlit Python application and the custom component frontend. The project directory should contain at least these files:
 
 ```markdown
-```text
 📁 MOODLE-REACTION-QUESTION-GENERATOR
 |   LICENSE
 |   ReactionToMoodleJSME.py
@@ -100,7 +99,7 @@ The repository is organized into two main parts: the Streamlit Python applicatio
     |           
     \---📁 __pycache__
             __init__.cpython-313.pyc
-
+```
 
 ## 🛠️ How it works
 1. **Launch the Application**
