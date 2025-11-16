@@ -66,37 +66,39 @@ The `requirements.txt` file includes:
 ## 📁 File Structure
 The repository is organized into two main parts: the Streamlit Python application and the custom component frontend. The project directory should contain at least these files:
 
-MOODLE-REACTION-QUESTION-GENERATOR
+```markdown
+```text
+📁 MOODLE-REACTION-QUESTION-GENERATOR
 |   LICENSE
 |   ReactionToMoodleJSME.py
 |   README.md
 |   requirements.txt
 |   
-+---fonts
++---📁 fonts
 |       DejaVuSans.ttf
 |       
-\---my_component
+\---📁 my_component
     |   __init__.py
     |   
-    +---frontend
+    +---📁 frontend
     |   |   index.html
     |   |   package-lock.json
     |   |   package.json
     |   |   tsconfig.json
     |   |   vite.config.ts
     |   |   
-    |   +---build
+    |   +---📁 build
     |   |   |   index.html
     |   |   |   
     |   |   \---assets
     |   |           index-DWnvittD.js
     |   |           
-    |   \---src
+    |   \---📁 src
     |           index.tsx
     |           MyComponent.tsx
     |           vite-env.d.ts
     |           
-    \---__pycache__
+    \---📁 __pycache__
             __init__.cpython-313.pyc
 
 
