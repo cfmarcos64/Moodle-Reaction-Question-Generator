@@ -549,7 +549,17 @@ def search_compound_wrapper(counter: int):
 
 st.set_page_config(page_title=texts["title"], layout="wide")
 
-# Language Switch
+# Initialize session_state variables
+if "reaction_questions" not in st.session_state:
+    st.session_state.reaction_questions = []
+if "reactants_str" not in st.session_state:
+    st.session_state.reactants_str = ""
+if "products_str" not in st.session_state:
+    st.session_state.products_str = ""
+if "search_counter" not in st.session_state:
+    st.session_state.search_counter = 0
+
+# === Language Switch ===
 col_lang, _ = st.columns([3, 2])
 with col_lang:
     txt_col, btn_col = st.columns([2, 2], vertical_alignment="center")
@@ -570,8 +580,11 @@ input_col, list_col = st.columns([2, 1])
 with input_col:
     tab1, tab2 = st.tabs([texts["tab_manual"], texts["tab_bulk"]])
 
+    # ---------------- TAB 1: Manual ----------------
     with tab1:
         st.subheader(texts["search_title"])
+
+        # Search field and button in the same row
         col_search, col_btn = st.columns([4, 1])
         with col_search:
             st.text_input(
@@ -584,15 +597,30 @@ with input_col:
             if st.button(texts["search_button"], use_container_width=True):
                 search_compound_wrapper(st.session_state.search_counter)
 
+
+        # Display search result with SMILES and RDKit image
         if st.session_state.get("search_result"):
-            st.markdown(
-                f"""
-                <div style="background-color: #d4edda; padding: 10px; border-radius: 5px; border: 1px solid #c3e6cb; margin: 10px 0;">
-                    <strong>{texts['smiles_found'].split(':')[0]}:</strong><br>
-                    <code>{st.session_state.search_result}</code>
-                </div>
-                """, unsafe_allow_html=True
-            )
+            mol = Chem.MolFromSmiles(st.session_state.search_result) if RDKIT_AVAILABLE else None
+            img = draw_mol_consistent(mol) if mol else None
+
+            col_smiles, col_img = st.columns([2, 1])
+            with col_smiles:
+                st.markdown(
+                    f"""
+                    
+                    <div style="background-color: #d4edda; padding: 10px; border-radius: 5px; border: 1px solid #c3e6cb; margin: 10px 0;">
+                        <strong>{texts['smiles_found'].split(':')[0]}:</strong><br>
+                        <code>{st.session_state.search_result}</code>
+                    </div>
+
+                    """, unsafe_allow_html=True
+                )
+            with col_img:
+                if img:
+                    st.image(img, width=80)
+                else:
+                    st.warning("Image not available.")
+
             c1, c2 = st.columns(2)
             with c1:
                 if st.button(texts["add_to_reactants"], use_container_width=True, key="add_r"):
@@ -610,62 +638,85 @@ with input_col:
                     st.rerun()
 
         st.markdown("---")
-        reactants_str = st.text_area(texts["reactants_label"], value=st.session_state.reactants_str, height=80, placeholder="CC(=O)O, O")
-        products_str = st.text_area(texts["products_label"], value=st.session_state.products_str, height=80, placeholder="CO, CO2")
+
+        # Reactants and products side by side
+        col_r, col_p = st.columns(2)
+        with col_r:
+            reactants_str = st.text_area(texts["reactants_label"], value=st.session_state.reactants_str, height=80)
+        with col_p:
+            products_str = st.text_area(texts["products_label"], value=st.session_state.products_str, height=80)
+
         st.session_state.reactants_str = reactants_str
         st.session_state.products_str = products_str
         reactants_list = [s.strip() for s in reactants_str.split(',') if s.strip()]
         products_list = [s.strip() for s in products_str.split(',') if s.strip()]
         all_molecules = reactants_list + products_list
 
-        missing_index = None
-        if all_molecules:
-            missing_index = st.selectbox(
-                texts["select_missing"],
-                range(len(all_molecules)),
-                format_func=lambda x: f"{all_molecules[x]} ({'R' if x < len(reactants_list) else 'P'})"
-            )
-        else:
-            st.info(texts["select_molecule_warning"])
+        # Missing molecule selection and reaction name in one row
+        col_missing, col_name = st.columns(2)
+        with col_missing:
+            if all_molecules:
+                missing_index = st.selectbox(
+                    texts["select_missing"],
+                    range(len(all_molecules)),
+                    format_func=lambda x: f"{all_molecules[x]} ({'R' if x < len(reactants_list) else 'P'})"
+                )
+            else:
+                missing_index = None
+                st.info(texts["select_molecule_warning"])
+        with col_name:
+            next_number = len(st.session_state.reaction_questions) + 1
+            default_name = f"{'Reacción' if st.session_state.lang == 'es' else 'Reaction'} {next_number}"
+            reaction_name = st.text_input(texts["reaction_name_label"], value=default_name)
 
-        next_number = len(st.session_state.reaction_questions) + 1
-        default_name = f"{'Reacción' if st.session_state.lang == 'es' else 'Reaction'} {next_number}"
-        reaction_name = st.text_input(texts["reaction_name_label"], value=default_name)
-        default_fb = '¡Muy bien!' if st.session_state.lang == 'es' else 'Well done!'
-        correct_feedback = st.text_area(texts["correct_feedback_label"], value=default_fb)
-        incorrect_feedback = st.text_area(texts["incorrect_feedback_label"], placeholder="Optional")
+        # Feedback fields side by side
+        col_fb1, col_fb2 = st.columns(2)
+        with col_fb1:
+            default_fb = '¡Muy bien!' if st.session_state.lang == 'es' else 'Well done!'
+            correct_feedback = st.text_input(texts["correct_feedback_label"], value=default_fb)
+        with col_fb2:
+            incorrect_feedback = st.text_input(texts["incorrect_feedback_label"], placeholder="Optional")
 
         st.markdown("---")
+
+        # Button to add reaction
         if st.button(texts["add_reaction_button"], type="primary", icon=":material/add_task:", use_container_width=True):
             if not reaction_name or not all_molecules or missing_index is None:
                 st.error(texts["smiles_empty_error"])
             else:
-                missing_smiles = all_molecules[missing_index]
                 try:
+                    missing_smiles = all_molecules[missing_index]
+
+                    # Validate SMILES with RDKit
                     if RDKIT_AVAILABLE:
                         for s in all_molecules:
                             if Chem.MolFromSmiles(s) is None and s not in ['[H+]', '[OH-]', 'H2O', 'O2', 'N2', 'CO2']:
                                 st.error(texts["smiles_invalid_error"].format(s))
-                                st.stop()
+                                break
+
+                    # Generate reaction image
                     img = generate_reaction_image(reactants_list, products_list, missing_smiles)
                     if not img:
                         st.error("Error generating image.")
-                        st.stop()
-                    st.session_state.reaction_questions.append({
-                        'name': reaction_name,
-                        'missing_smiles': missing_smiles,
-                        'img_base64': img,
-                        'correct_feedback': correct_feedback or default_fb,
-                        'incorrect_feedback': incorrect_feedback
-                    })
-                    st.success(texts["reaction_added"].format(reaction_name))
-                    st.session_state.reactants_str = ""
-                    st.session_state.products_str = ""
-                    st.session_state.jsme_normalized = False
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                    else:
+                        st.session_state.reaction_questions.append({
+                            'name': reaction_name,
+                            'missing_smiles': missing_smiles,
+                            'img_base64': img,
+                            'correct_feedback': correct_feedback or default_fb,
+                            'incorrect_feedback': incorrect_feedback
+                        })
+                        st.success(texts["reaction_added"].format(reaction_name))
 
+                        # Reset fields
+                        st.session_state.reactants_str = ""
+                        st.session_state.products_str = ""
+                        st.session_state.jsme_normalized = False
+
+                except Exception as e:
+                    st.exception(e)
+
+    # ---------------- TAB 2: Bulk ----------------
     with tab2:
         st.markdown(texts["bulk_info"])
         uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader")
