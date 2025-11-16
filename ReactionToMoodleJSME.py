@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Generador de Preguntas de Reacción para Moodle
+Moodle Reaction Question Generator (with Bulk Upload)
 @author: Carlos Fernandez Marcos
 """
 import streamlit as st
@@ -8,11 +8,16 @@ import xml.etree.ElementTree as ET
 import requests
 import io
 import base64
+import os
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np # Importación de numpy
+import numpy as np
+import pandas as pd  # Required for bulk upload
 from my_component import jsme_editor
 
-# --- 1. Module Availability Check and Imports ---
+# ===================================================================
+# 1. MODULE AVAILABILITY CHECKS
+# ===================================================================
+
 try:
     from rdkit import Chem
     from rdkit.Chem import Draw, rdDepictor
@@ -24,27 +29,18 @@ except ImportError:
     rdMolDraw2D = None
     RDKIT_AVAILABLE = False
 
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    pd = None
-    PANDAS_AVAILABLE = False
+PANDAS_AVAILABLE = True  # Already imported above
+NUMPY_AVAILABLE = True if 'np' in globals() else False
 
-try:
-    # Definición de NUMPY_AVAILABLE (el error que faltaba)
-    import numpy as np
-    NUMPY_AVAILABLE = True
-except ImportError:
-    np = None
-    NUMPY_AVAILABLE = False
+# ========================================================================
+# 2. MULTILINGUAL TEXTS
+# ========================================================================
 
-# --- 2. TEXTS (Multilingüe) ---
 TEXTS = {
     "es": {
         "title": "Generador de Preguntas de Reacción para Moodle",
         "intro": "Crea preguntas con JSME. Normaliza antes de exportar.",
-        "change_language": "Change language to English", 
+        "change_language": "Change language to English",
         "tab_manual": "Entrada Manual",
         "tab_bulk": "Carga Masiva",
         "search_title": "Búsqueda por Nombre (NCI CIR)",
@@ -59,7 +55,8 @@ TEXTS = {
         "correct_feedback_label": "Retroalimentación Correcta:",
         "incorrect_feedback_label": "Retroalimentación Incorrecta (Opcional):",
         "add_reaction_button": "Añadir Reacción",
-        "bulk_info": "### Carga Masiva\nSube un archivo Excel/CSV con columnas: `Missing_Name`, `R1`, `R2`, ..., `P1`, `P2`, ...",
+        "bulk_info": "### Carga Masiva\nSube un archivo Excel/CSV con columnas:\n"
+                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, 'Correct_Feedback', 'Incorrect_Feedback', 'Reaction_Name'",
         "upload_file_label": "Selecciona archivo Excel/CSV:",
         "process_bulk_button": "Procesar Archivo",
         "processing_bulk": "Procesando {} filas...",
@@ -75,11 +72,9 @@ TEXTS = {
         "normalize_button": "Normalizar con JSME",
         "download_xml_button": "Descargar XML",
         "clear_all_button": "Borrar Todas",
-        "delete_tooltip": "Eliminar",
         "no_questions": "Aún no hay preguntas añadidas.",
         "select_molecule_warning": "Selecciona una molécula faltante de la lista.",
         "xml_error": "Error al generar XML: {}",
-        "processing_jsme": "Procesando con JSME...",
         "jsme_success": "ÉXITO: **{} de {}** normalizadas correctamente",
         "jsme_partial": "Parcial: **{} de {}** normalizadas",
         "jsme_error": "Ninguna normalizada",
@@ -88,7 +83,7 @@ TEXTS = {
     "en": {
         "title": "Moodle Reaction Question Generator",
         "intro": "Create questions with JSME. Normalize before export.",
-        "change_language": "Cambiar idioma a Español", 
+        "change_language": "Cambiar idioma a Español",
         "tab_manual": "Manual Entry",
         "tab_bulk": "Bulk Upload",
         "search_title": "Search by Name (NCI CIR)",
@@ -103,7 +98,8 @@ TEXTS = {
         "correct_feedback_label": "Correct Feedback:",
         "incorrect_feedback_label": "Incorrect Feedback (Optional):",
         "add_reaction_button": "Add Reaction",
-        "bulk_info": "### Bulk Upload\nUpload Excel/CSV with columns: `Missing_Name`, `R1`, `R2`, ..., `P1`, `P2`, ...",
+        "bulk_info": "### Bulk Upload\nUpload Excel/CSV with columns:\n"
+                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, 'Correct_Feedback', 'Incorrect_Feedback', 'Reaction_Name'",
         "upload_file_label": "Select Excel/CSV file:",
         "process_bulk_button": "Process File",
         "processing_bulk": "Processing {} rows...",
@@ -119,11 +115,9 @@ TEXTS = {
         "normalize_button": "Normalize with JSME",
         "download_xml_button": "Download XML",
         "clear_all_button": "Clear All",
-        "delete_tooltip": "Delete",
         "no_questions": "No questions added yet.",
         "select_molecule_warning": "Select a missing molecule from the list.",
         "xml_error": "Error generating XML: {}",
-        "processing_jsme": "Processing with JSME...",
         "jsme_success": "SUCCESS: **{} of {}** normalized correctly",
         "jsme_partial": "Partial: **{} of {}** normalized",
         "jsme_error": "None normalized",
@@ -131,7 +125,10 @@ TEXTS = {
     }
 }
 
-# --- 3. Session State ---
+# ========================================================================
+# 3. SESSION STATE INITIALIZATION
+# ========================================================================
+
 if 'lang' not in st.session_state:
     st.session_state.lang = 'es'
 if "reaction_questions" not in st.session_state:
@@ -148,33 +145,35 @@ if "show_jsme" not in st.session_state:
     st.session_state.show_jsme = False
 if "normalized_smiles" not in st.session_state:
     st.session_state.normalized_smiles = {}
-if "clear_search" not in st.session_state:  # ← AÑADIR ESTA LÍNEA
-    st.session_state.clear_search = False
 if "search_counter" not in st.session_state:
     st.session_state.search_counter = 0
 
-
 texts = TEXTS[st.session_state.lang]
 
-# --- 4. Core Helper Functions ---
+# ========================================================================
+# 4. HELPER FUNCTIONS
+# ========================================================================
 
-# 4.1. Helper to convert PIL Image to base64 (MISSING)
-def image_to_base64(img):
+def image_to_base64(img: Image.Image) -> str:
     buffered = io.BytesIO()
-    # Ensure correct format for base64 encoding
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
+def get_font(size: int) -> ImageFont.FreeTypeFont:
+    font_path = "fonts/DejaVuSans.ttf"
+    for candidate in [font_path, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
+        if os.path.exists(candidate):
+            try:
+                return ImageFont.truetype(candidate, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
-# 4.2. RDKit drawing function that ensures consistent bond length (REPLACING draw_mol_image)
-def draw_mol_consistent(mol, fixed_bond_length=25.0, padding=10):
-    """Draws a molecule consistently, returns a cropped PIL Image."""
+def draw_mol_consistent(mol, fixed_bond_length: float = 25.0, padding: int = 10) -> Image.Image:
     if not mol or not rdMolDraw2D or not NUMPY_AVAILABLE:
         return Image.new('RGB', (50, 50), (255, 255, 255))
-    
     if mol.GetNumConformers() == 0:
         rdDepictor.Compute2DCoords(mol)
-    
     opts = rdMolDraw2D.MolDrawOptions()
     opts.bondLineWidth = max(1, int(fixed_bond_length * 0.1))
     opts.fixedBondLength = fixed_bond_length
@@ -182,179 +181,60 @@ def draw_mol_consistent(mol, fixed_bond_length=25.0, padding=10):
     opts.padding = 0.1
     opts.addStereoAnnotation = False
     opts.clearBackground = True
-    
     large_size = 2048
     drawer = rdMolDraw2D.MolDraw2DCairo(large_size, large_size)
     drawer.SetDrawOptions(opts)
     drawer.DrawMolecule(mol)
     drawer.FinishDrawing()
-    
     bio = io.BytesIO(drawer.GetDrawingText())
     img = Image.open(bio).convert('RGB')
-    
-    # Trim whitespace
     img_array = np.array(img)
     mask = np.any(img_array != [255, 255, 255], axis=-1)
     y_coords, x_coords = np.nonzero(mask)
-    
     if len(y_coords) == 0:
         return Image.new('RGB', (50, 50), (255, 255, 255))
-        
     y0 = max(0, y_coords.min() - padding)
     x0 = max(0, x_coords.min() - padding)
     y1 = min(img.height, y_coords.max() + 1 + padding)
     x1 = min(img.width, x_coords.max() + 1 + padding)
-    
-    trimmed = img.crop((x0, y0, x1, y1))
-    return trimmed
-
-# 4.3. Main image generation function
-def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
-    """Generates a reaction image with the missing compound replaced by a question mark."""
-    if not Chem or not rdMolDraw2D or not NUMPY_AVAILABLE:
-        return None, None
-
-    all_smiles = reactants_smiles + products_smiles
-    try:
-        missing_index = all_smiles.index(missing_smiles)
-    except ValueError:
-        return None, None # Missing SMILES not in reaction
-
-    fixed_bond_length = 25.0
-    padding = 10
-    max_w_final = 600
-    max_h_final = 200
-    base_symbol_size = int(fixed_bond_length)
-    
-    unscaled_images = []
-    max_h = 0
-    total_mol_w = 0
-
-    # 1. Generate individual molecule/question mark images
-    for i, s in enumerate(all_smiles):
-        if i == missing_index:
-            # Calculate size proportional to generated molecules
-            if unscaled_images:
-                avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images)
-            else:
-                avg_h = fixed_bond_length * 3  # default value if it is the first
-        
-            # Base size of the question mark
-            q_font_size = int(avg_h * 0.6)  # 60% mean size of the molecule
-            q_font_size = max(28, min(q_font_size, 120))  # reasonable limits
-        
-            font_q = get_font(q_font_size)
-        
-            # Calcular bounding box del "?"
-            temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-            bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
-            text_w = bbox[2] - bbox[0]
-            text_h = bbox[3] - bbox[1]
-        
-            # Crear imagen del "?"
-            padding = int(q_font_size * 0.4)
-            q_w, q_h = text_w + padding, text_h + padding
-        
-            img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
-            dq = ImageDraw.Draw(img_q)
-            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
-        
-            # Add to the list
-            unscaled_images.append(img_q)
-            max_h = max(max_h, q_h)
-            total_mol_w += q_w
-
-        else:
-            # Generate molecule image
-            mol = Chem.MolFromSmiles(s)
-            if mol:
-                img = draw_mol_consistent(mol, fixed_bond_length, padding)
-                unscaled_images.append(img)
-                max_h = max(max_h, img.height)
-                total_mol_w += img.width
-            else:
-                unscaled_images.append(Image.new('RGB', (50, 50), (255, 255, 255)))
-                max_h = max(max_h, 50)
-                total_mol_w += 50
-# Here we call the function that draws the whole reaction
-    final_img_b64 = draw_reaction(
-        reactants_smiles, products_smiles, unscaled_images,
-        base_symbol_size, max_w_final, max_h_final
-    )
-
-    # And return
-    return final_img_b64
-    
-from PIL import Image, ImageDraw, ImageFont
-import os
-
-def get_font(size):
-    """Update TTF font or use fallback if not available."""
-    # Relative path to the local font in the repo
-    font_path = "fonts/DejaVuSans.ttf"
-    
-    for candidate in [font_path, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
-        if os.path.exists(candidate):
-            try:
-                return ImageFont.truetype(candidate, size)
-            except Exception:
-                continue
-    # Fallback very small, thus it is manually scaled
-    return ImageFont.load_default()
-
+    return img.crop((x0, y0, x1, y1))
 
 def draw_reaction(reactants_smiles, products_smiles, unscaled_images,
-                     base_symbol_size, max_w_final, max_h_final):
-    # 2. Calculate symbol (' + ' and ' → ') dimensions
+                  base_symbol_size, max_w_final, max_h_final) -> str:
     symbols = []
     if len(reactants_smiles) > 1:
         symbols.extend([" + "] * (len(reactants_smiles) - 1))
     symbols.append(" → ")
     if len(products_smiles) > 1:
         symbols.extend([" + "] * (len(products_smiles) - 1))
-
-    # Use estable font
-    # Calculate size proportional to molecule size
     font_base = get_font(base_symbol_size)
     draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     symbol_widths = [draw_temp.textbbox((0, 0), s, font=font_base)[2] + 10 for s in symbols]
     max_symbol_h = max([draw_temp.textbbox((0, 0), s, font=font_base)[3] for s in symbols] or [0])
-    
     total_mol_w = sum(img.width for img in unscaled_images)
     max_h = max(max(img.height for img in unscaled_images), max_symbol_h)
     symbols_width = sum(symbol_widths)
     total_w = total_mol_w + symbols_width
-
-    # 3. Scaling
     scale_factor = 1.0
     if total_w > max_w_final:
         scale_factor = max_w_final / total_w
-    
     scaled_h = max_h * scale_factor
     if scaled_h > max_h_final:
         scale_factor = max_h_final / max_h
-        
     final_w = int(total_w * scale_factor) + 40
     final_h = int(max_h * scale_factor) + 40
-    
     final_img = Image.new('RGB', (final_w, final_h), (255, 255, 255))
     draw = ImageDraw.Draw(final_img)
     x_offset = 20
     symbol_idx = 0
-
-    # 4. Compose final image
     scaled_font_size = max(10, int(base_symbol_size * scale_factor))
     font_scaled = get_font(scaled_font_size)
-        
     for i, img in enumerate(unscaled_images):
-        # Paste molecule/question mark
         sf_w, sf_h = int(img.width * scale_factor), int(img.height * scale_factor)
         img_to_paste = img.resize((sf_w or 1, sf_h or 1), Image.Resampling.LANCZOS)
         y_pos = (final_h - sf_h) // 2
         final_img.paste(img_to_paste, (int(x_offset), y_pos))
         x_offset += sf_w
-        
-        # Draw symbol
         if i < len(unscaled_images) - 1:
             symbol_text = symbols[symbol_idx]
             bbox = draw.textbbox((0, 0), symbol_text, font=font_scaled)
@@ -363,9 +243,92 @@ def draw_reaction(reactants_smiles, products_smiles, unscaled_images,
             draw.text((int(x_offset + 5), y_pos_s), symbol_text, font=font_scaled, fill=(0, 0, 0))
             x_offset += (bbox[2] - bbox[0]) + int(10 * scale_factor)
             symbol_idx += 1
-            
     return image_to_base64(final_img)
-def get_smiles_from_name(name):
+
+def generate_reaction_image(reactants_smiles, products_smiles, missing_smiles):
+    if not Chem or not rdMolDraw2D or not NUMPY_AVAILABLE:
+        return None
+    all_smiles = reactants_smiles + products_smiles
+    try:
+        missing_index = all_smiles.index(missing_smiles)
+    except ValueError:
+        return None
+    fixed_bond_length = 25.0
+    padding = 10
+    max_w_final = 600
+    max_h_final = 200
+    base_symbol_size = int(fixed_bond_length)
+    unscaled_images = []
+    for i, s in enumerate(all_smiles):
+        if i == missing_index:
+            avg_h = sum(img.height for img in unscaled_images) / len(unscaled_images) if unscaled_images else fixed_bond_length * 3
+            q_font_size = max(28, min(int(avg_h * 0.6), 120))
+            font_q = get_font(q_font_size)
+            temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+            bbox = temp_draw.textbbox((0, 0), "?", font=font_q)
+            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            pad = int(q_font_size * 0.4)
+            q_w, q_h = text_w + pad, text_h + pad
+            img_q = Image.new('RGB', (q_w, q_h), (255, 255, 255))
+            dq = ImageDraw.Draw(img_q)
+            dq.text(((q_w - text_w) / 2, (q_h - text_h) / 2), "?", font=font_q, fill=(0, 0, 0))
+            unscaled_images.append(img_q)
+        else:
+            mol = Chem.MolFromSmiles(s)
+            if mol:
+                img = draw_mol_consistent(mol, fixed_bond_length, padding)
+                unscaled_images.append(img)
+            else:
+                blank = Image.new('RGB', (50, 50), (255, 255, 255))
+                unscaled_images.append(blank)
+    return draw_reaction(reactants_smiles, products_smiles, unscaled_images, base_symbol_size, max_w_final, max_h_final)
+
+def generate_xml(questions, lang: str) -> bytes:
+    quiz = ET.Element('quiz')
+    prompt = '<p>Dibuja la molécula faltante:</p>' if lang == 'es' else '<p>Draw the missing molecule:</p>'
+    
+    for q in questions:
+        smiles_to_use = q['missing_smiles']
+        question = ET.SubElement(quiz, 'question', type='pmatchjme')
+        
+        # Question name
+        name_el = ET.SubElement(question, 'name')
+        ET.SubElement(name_el, 'text').text = q['name']
+        
+        # Question with image
+        qtext = ET.SubElement(question, 'questiontext', format='html')
+        ET.SubElement(qtext, 'text').text = f'{prompt}<img src="data:image/png;base64,{q["img_base64"]}" alt="Reaction"/>'
+        
+        # Right answer
+        answer = ET.SubElement(question, 'answer', fraction='100', format='moodle_auto_format')
+        escaped_smiles = smiles_to_use.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace("[", "\\[").replace("]", "\\]")
+        ET.SubElement(answer, 'text').text = f"match({escaped_smiles})"
+        
+        # Model answer
+        model = ET.SubElement(question, 'modelanswer')
+        model.text = q['missing_smiles']
+
+        # Feedback RIGHT answer
+        if q['correct_feedback']:
+            fb = ET.SubElement(answer, 'feedback', format='html')
+            fb_text = ET.SubElement(fb, 'text')
+            fb_text.text = f"<![CDATA[ <p>{q['correct_feedback']}</p> ]]>"
+        
+        # Feedback WRONG answer
+        if q['incorrect_feedback']:
+            ans_inc = ET.SubElement(question, 'answer', fraction='0', format='moodle_auto_format')
+            ET.SubElement(ans_inc, 'text').text = "*"
+            fb_inc = ET.SubElement(ans_inc, 'feedback', format='html')
+            fb_inc_text = ET.SubElement(fb_inc, 'text')
+            fb_inc_text.text = f"<![CDATA[ <p>{q['incorrect_feedback']}</p> ]]>"
+            ET.SubElement(ans_inc, 'atomcount').text = "0"
+    
+    # Generate pretty XML
+    xml_str = ET.tostring(quiz, encoding='utf-8', method='xml').decode('utf-8')
+    import xml.dom.minidom
+    return xml.dom.minidom.parseString(xml_str).toprettyxml(indent="  ").encode('utf-8')
+
+def get_smiles_from_name(name: str) -> str | None:
     try:
         url = f"https://cactus.nci.nih.gov/chemical/structure/{name}/smiles"
         res = requests.get(url, timeout=10)
@@ -377,25 +340,19 @@ def get_smiles_from_name(name):
     except:
         return None
 
-def generate_xml(questions, normalized_smiles_dict, lang):
+def generate_xml(questions, lang: str) -> bytes:
     quiz = ET.Element('quiz')
     prompt = '<p>Dibuja la molécula faltante:</p>' if lang == 'es' else '<p>Draw the missing molecule:</p>'
-    for i, q in enumerate(questions):
-        # Usar SMILES normalizado si existe, si no usar el original
-        # Dado que la interfaz de JSME actualiza q['missing_smiles'], lo usamos directamente.
+    for q in questions:
         smiles_to_use = q['missing_smiles']
-        
         question = ET.SubElement(quiz, 'question', type='pmatchjme')
         name_el = ET.SubElement(question, 'name')
         ET.SubElement(name_el, 'text').text = q['name']
         qtext = ET.SubElement(question, 'questiontext', format='html')
         ET.SubElement(qtext, 'text').text = f'{prompt}<img src="data:image/png;base64,{q["img_base64"]}" alt="Reaction"/>'
         answer = ET.SubElement(question, 'answer', fraction='100', format='moodle_auto_format')
-        
-        # Escapar caracteres especiales para Moodle (Línea solicitada)
         escaped_smiles = smiles_to_use.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace("[", "\\[").replace("]", "\\]")
         ET.SubElement(answer, 'text').text = f"match({escaped_smiles})"
-        
         fb = ET.SubElement(answer, 'feedback', format='html')
         ET.SubElement(fb, 'text').text = q['correct_feedback']
         model = ET.SubElement(question, 'modelanswer')
@@ -407,46 +364,197 @@ def generate_xml(questions, normalized_smiles_dict, lang):
             ET.SubElement(fb_inc, 'text').text = q['incorrect_feedback']
     xml_str = ET.tostring(quiz, encoding='utf-8').decode('utf-8')
     import xml.dom.minidom
-    return xml.dom.minidom.parseString(xml_str).toprettyxml(indent="  ").encode('utf-8') # Cambio de tab a 2 espacios
+    return xml.dom.minidom.parseString(xml_str).toprettyxml(indent="  ").encode('utf-8')
 
-# --- 5. BÚSQUEDA SIN SALTO (ANTES DEL UI) ---
-def search_compound():
-    name = st.session_state.search_input.strip()
+# ========================================================================
+# 5. BULK UPLOAD PROCESSING (WITH FEEDBACK + NAME + SMILES CONVERSION)
+# ========================================================================
+
+def name_to_smiles(name: str) -> str | None:
+    """Convert compound name to SMILES using NCI CIR or validate if already SMILES."""
+    if not name or pd.isna(name):
+        return None
+    name = str(name).strip()
     if not name:
+        return None
+    # If already valid SMILES, return it
+    if RDKIT_AVAILABLE and Chem.MolFromSmiles(name) is not None:
+        return name
+    # Otherwise, search NCI
+    return get_smiles_from_name(name)
+
+def process_bulk_file(uploaded_file):
+    """Extracts data from Excel/CSV, converts names to SMILES and generates questions."""
+    if not uploaded_file:
+        st.warning("No file uploaded.")
         return
-    with st.spinner("Buscando..."):
-        smiles = get_smiles_from_name(name)
-    if smiles:
-        st.session_state.search_result = smiles
-    else:
-        st.error(texts["name_error"].format(name))
+
+    # --- UI: progress and state (BEFORE try) ---
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    # --- Read file ---
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        status_text.empty()
+        progress_bar.empty()
+        st.error(f"Error reading file: {e}")
+        return
+
+    # --- Validate required column ---
+    if 'Missing_Name' not in df.columns:
+        status_text.empty()
+        progress_bar.empty()
+        st.error("Column `Missing_Name` is required.")
+        return
+
+    # --- Counters ---
+    added = 0
+    failed = 0
+    logs = []
+
+    # --- PRINCIPAL LOOP ---
+    for idx, row in df.iterrows():
+        status_text.text(f"Processing row {idx + 2}...")
+        progress_bar.progress((idx + 1) / len(df))
+
+        # === 1. Missing_Name ===
+        missing_name_raw = row.get('Missing_Name')
+        if pd.isna(missing_name_raw) or str(missing_name_raw).strip() == '':
+            failed += 1
+            logs.append(f"Row {idx+2}: Missing_Name is empty")
+            continue
+        missing_name = str(missing_name_raw).strip()
+
+        # === 2. Reaction_Name (optional) ===
+        reaction_name_raw = row.get('Reaction_Name')
+        reaction_name_str = str(reaction_name_raw).strip() if pd.notna(reaction_name_raw) else ""
         
-    if "clear_search" not in st.session_state:
-        st.session_state.clear_search = False
+        if reaction_name_str == "" or reaction_name_str.lower() == "nan":
+            reaction_name = missing_name
+        else:
+            reaction_name = reaction_name_str
+
+        # === 3. Feedbacks ===
+        def clean_feedback(value):
+            if pd.isna(value):
+                return ""
+            s = str(value).strip()
+            if s.lower() in ["", "nan", "n/a", "none", "<null>"]:
+                return ""
+            return s
+
+        correct_feedback = clean_feedback(row.get('Correct_Feedback'))
+        incorrect_feedback = clean_feedback(row.get('Incorrect_Feedback'))
         
-def search_compound_wrapper(counter):
-    """Wrapper para search_compound que usa la key dinámica."""
+        # === 4. Reactants and Products ===
+        raw_reactants = []
+        raw_products = []
+        for col in df.columns:
+            if col not in ['Missing_Name', 'Reaction_Name', 'Correct_Feedback', 'Incorrect_Feedback']:
+                val = row.get(col)
+                if pd.notna(val):
+                    s = str(val).strip()
+                    if s:
+                        if col.startswith('R'):
+                            raw_reactants.append(s)
+                        elif col.startswith('P'):
+                            raw_products.append(s)
+
+        if not raw_reactants and not raw_products:
+            failed += 1
+            logs.append(f"Row {idx+2}: No reactants or products")
+            continue
+
+        # === 5. Convert to SMILES ===
+        reactants_smiles = []
+        products_smiles = []
+        missing_smiles = None
+
+        for name in raw_reactants:
+            smiles = name_to_smiles(name)
+            if not smiles:
+                failed += 1
+                logs.append(f"Row {idx+2}: Reactant '{name}' → not found")
+                break
+            reactants_smiles.append(smiles)
+        else:
+            for name in raw_products:
+                smiles = name_to_smiles(name)
+                if not smiles:
+                    failed += 1
+                    logs.append(f"Row {idx+2}: Product '{name}' → not found")
+                    break
+                products_smiles.append(smiles)
+            else:
+                missing_smiles = name_to_smiles(missing_name)
+                if not missing_smiles:
+                    failed += 1
+                    logs.append(f"Row {idx+2}: Missing '{missing_name}' → not found")
+                elif missing_smiles not in (reactants_smiles + products_smiles):
+                    failed += 1
+                    logs.append(f"Row {idx+2}: Missing not in reaction")
+                else:
+                    img = generate_reaction_image(reactants_smiles, products_smiles, missing_smiles)
+                    if not img:
+                        failed += 1
+                        logs.append(f"Row {idx+2}: Image failed")
+                    else:
+                        st.session_state.reaction_questions.append({
+                            'name': reaction_name,
+                            'missing_smiles': missing_smiles,
+                            'img_base64': img,
+                            'correct_feedback': correct_feedback,
+                            'incorrect_feedback': incorrect_feedback
+                        })
+                        added += 1
+
+    # --- Finalize ---
+    progress_bar.empty()
+    status_text.empty()
+
+    if added > 0:
+        st.success(f"Completed: {added} added, {failed} failed.")
+    if failed > 0:
+        with st.expander(f"Failed rows ({failed})"):
+            for log in logs:
+                st.caption(log)
+
+    st.session_state.jsme_normalized = False
+    if added > 0:
+        st.rerun()
+
+# ========================================================================
+# 6. SEARCH HELPERS
+# ========================================================================
+
+def search_compound_wrapper(counter: int):
     name = st.session_state.get(f"search_input_{counter}", "").strip()
     if not name:
         return
-    with st.spinner("Buscando..."):
+    with st.spinner("Searching..."):
         smiles = get_smiles_from_name(name)
     if smiles:
         st.session_state.search_result = smiles
     else:
         st.error(texts["name_error"].format(name))
 
-# --- 6. UI ---
+# ========================================================================
+# 7. STREAMLIT UI
+# ========================================================================
+
 st.set_page_config(page_title=texts["title"], layout="wide")
 
-# Language switch
+# Language Switch
 col_lang, _ = st.columns([3, 2])
 with col_lang:
-    # Usar columnas para colocar texto y botón en la misma línea
     txt_col, btn_col = st.columns([2, 2], vertical_alignment="center")
     with txt_col:
-        lang_text = texts["change_language"]
-        st.markdown(f"**{lang_text}**", unsafe_allow_html=True)
+        st.markdown(f"**{texts['change_language']}**", unsafe_allow_html=True)
     with btn_col:
         if st.button("EN" if st.session_state.lang == "es" else "ES"):
             st.session_state.lang = "en" if st.session_state.lang == "es" else "es"
@@ -464,21 +572,18 @@ with input_col:
 
     with tab1:
         st.subheader(texts["search_title"])
-
-        # BÚSQUEDA SIN SALTO - Key dinámica que cambia para resetear el widget
         col_search, col_btn = st.columns([4, 1])
         with col_search:
             st.text_input(
                 texts["name_input_label"],
-                key=f"search_input_{st.session_state.search_counter}",  # ← Key dinámica
+                key=f"search_input_{st.session_state.search_counter}",
                 label_visibility="collapsed",
                 on_change=lambda: search_compound_wrapper(st.session_state.search_counter)
             )
         with col_btn:
             if st.button(texts["search_button"], use_container_width=True):
                 search_compound_wrapper(st.session_state.search_counter)
-        
-        # RESULTADO
+
         if st.session_state.get("search_result"):
             st.markdown(
                 f"""
@@ -486,44 +591,29 @@ with input_col:
                     <strong>{texts['smiles_found'].split(':')[0]}:</strong><br>
                     <code>{st.session_state.search_result}</code>
                 </div>
-                """,
-                unsafe_allow_html=True
+                """, unsafe_allow_html=True
             )
-        
             c1, c2 = st.columns(2)
             with c1:
                 if st.button(texts["add_to_reactants"], use_container_width=True, key="add_r"):
                     current = st.session_state.reactants_str
                     st.session_state.reactants_str = f"{current}, {st.session_state.search_result}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1  # ← Incrementar contador (resetea widget)
+                    st.session_state.search_counter += 1
                     st.rerun()
             with c2:
                 if st.button(texts["add_to_products"], use_container_width=True, key="add_p"):
                     current = st.session_state.products_str
                     st.session_state.products_str = f"{current}, {st.session_state.search_result}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1  # ← Incrementar contador (resetea widget)
+                    st.session_state.search_counter += 1
                     st.rerun()
 
         st.markdown("---")
-
-        reactants_str = st.text_area(
-            texts["reactants_label"],
-            value=st.session_state.reactants_str,
-            height=80,
-            placeholder="CC(=O)O, O"
-        )
-        products_str = st.text_area(
-            texts["products_label"],
-            value=st.session_state.products_str,
-            height=80,
-            placeholder="CO, CO2"
-        )
-
+        reactants_str = st.text_area(texts["reactants_label"], value=st.session_state.reactants_str, height=80, placeholder="CC(=O)O, O")
+        products_str = st.text_area(texts["products_label"], value=st.session_state.products_str, height=80, placeholder="CO, CO2")
         st.session_state.reactants_str = reactants_str
         st.session_state.products_str = products_str
-
         reactants_list = [s.strip() for s in reactants_str.split(',') if s.strip()]
         products_list = [s.strip() for s in products_str.split(',') if s.strip()]
         all_molecules = reactants_list + products_list
@@ -540,18 +630,12 @@ with input_col:
 
         next_number = len(st.session_state.reaction_questions) + 1
         default_name = f"{'Reacción' if st.session_state.lang == 'es' else 'Reaction'} {next_number}"
-        reaction_name = st.text_input(
-            texts["reaction_name_label"],
-            value=default_name,
-            placeholder="Ej: Combustión de metano"
-        )
-
+        reaction_name = st.text_input(texts["reaction_name_label"], value=default_name)
         default_fb = '¡Muy bien!' if st.session_state.lang == 'es' else 'Well done!'
         correct_feedback = st.text_area(texts["correct_feedback_label"], value=default_fb)
-        incorrect_feedback = st.text_area(texts["incorrect_feedback_label"], placeholder="Opcional")
+        incorrect_feedback = st.text_area(texts["incorrect_feedback_label"], placeholder="Optional")
 
         st.markdown("---")
-
         if st.button(texts["add_reaction_button"], type="primary", icon=":material/add_task:", use_container_width=True):
             if not reaction_name or not all_molecules or missing_index is None:
                 st.error(texts["smiles_empty_error"])
@@ -560,18 +644,13 @@ with input_col:
                 try:
                     if RDKIT_AVAILABLE:
                         for s in all_molecules:
-                            # Simple validation (RDKit only needed if available)
                             if Chem.MolFromSmiles(s) is None and s not in ['[H+]', '[OH-]', 'H2O', 'O2', 'N2', 'CO2']:
                                 st.error(texts["smiles_invalid_error"].format(s))
                                 st.stop()
-                    
-                    # Call image generation (uses fixed NUMPY_AVAILABLE)
                     img = generate_reaction_image(reactants_list, products_list, missing_smiles)
-                    
                     if not img:
-                        st.error("Error al generar imagen o faltan dependencias.")
+                        st.error("Error generating image.")
                         st.stop()
-                        
                     st.session_state.reaction_questions.append({
                         'name': reaction_name,
                         'missing_smiles': missing_smiles,
@@ -582,45 +661,41 @@ with input_col:
                     st.success(texts["reaction_added"].format(reaction_name))
                     st.session_state.reactants_str = ""
                     st.session_state.products_str = ""
-                    st.session_state.jsme_normalized = False  # Resetear normalización
-                    st.session_state.normalized_smiles = {}
+                    st.session_state.jsme_normalized = False
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
 
     with tab2:
         st.markdown(texts["bulk_info"])
-        uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'])
-        if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True):
-            st.info("Carga masiva no implementada aún.")
+        uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader")
+        if uploaded:
+            st.success(f"File uploaded: {uploaded.name}")
+            if st.button(texts["process_bulk_button"], type="primary", use_container_width=True):
+                process_bulk_file(uploaded)
+        else:
+            st.info("Upload a file to process.")
 
 # === OUTPUT COLUMN ===
 with list_col:
     st.subheader(texts["added_questions_title"])
-
     if st.session_state.reaction_questions:
-        # --- 1. BOTÓN: Normalizar con JSME ---
         if not st.session_state.jsme_normalized:
             if st.button(texts["normalize_button"], use_container_width=True, type="secondary"):
                 st.session_state.show_jsme = True
                 st.rerun()
 
-        # --- EDITOR JSME ---
         if st.session_state.show_jsme:
-            st.markdown("### Edita cada molécula")
+            st.markdown("### Edit each molecule")
             with st.form(key="jsme_form"):
                 total = len(st.session_state.reaction_questions)
                 for i, q in enumerate(st.session_state.reaction_questions):
                     st.markdown(f"**{i+1}. {q['name']}**")
-                    # Nota: `jsme_editor` es un componente externo que no se puede incluir aquí.
-                    # Asumiendo que `my_component` está disponible.
                     try:
                         jsme_editor(q['missing_smiles'], key=f"jsme_{i}")
                     except NameError:
-                        st.warning("El componente `jsme_editor` no está disponible. Saltando edición.")
-
-                submitted = st.form_submit_button("Aplicar Normalización", type="primary", use_container_width=True)
-                if submitted:
+                        st.warning("`jsme_editor` not available.")
+                if st.form_submit_button("Apply Normalization", type="primary", use_container_width=True):
                     success = 0
                     for i in range(total):
                         val = st.session_state.get(f"jsme_{i}")
@@ -637,18 +712,16 @@ with list_col:
                     st.session_state.show_jsme = False
                     st.rerun()
 
-        # --- 2. BOTÓN: Descargar XML ---
         if st.session_state.jsme_normalized:
             try:
-                # El parámetro normalized_smiles_dict no es crítico ya que el SMILES está actualizado en questions
-                xml_data = generate_xml(st.session_state.reaction_questions, st.session_state.normalized_smiles, st.session_state.lang)
+                xml_data = generate_xml(st.session_state.reaction_questions, st.session_state.lang)
                 st.download_button(
                     label=texts["download_xml_button"],
                     data=xml_data,
                     file_name="reaction_questions.xml",
                     mime="application/xml",
                     use_container_width=True,
-                    icon= ":material/file_save:",
+                    icon=":material/file_save:",
                     type="primary"
                 )
             except Exception as e:
@@ -656,7 +729,6 @@ with list_col:
         else:
             st.info(texts["normalize_first"])
 
-        # --- Borrar todo ---
         if st.button(texts["clear_all_button"], icon=":material/delete:", use_container_width=True):
             st.session_state.reaction_questions = []
             st.session_state.jsme_normalized = False
@@ -669,12 +741,11 @@ with list_col:
                 c1, c2 = st.columns([5, 1])
                 with c1:
                     st.markdown(f"**{i+1}. {q['name']}**")
-                    # Decode base64 for image display
                     try:
                         st.image(io.BytesIO(base64.b64decode(q['img_base64'])), width=250)
                     except:
-                        st.warning("No se pudo mostrar la imagen (error de base64).")
-                    st.caption(f"Faltante: `{q['missing_smiles']}`")
+                        st.warning("Image display failed.")
+                    st.caption(f"Missing: `{q['missing_smiles']}`")
                 with c2:
                     if st.button("🗑️", key=f"del_{i}"):
                         del st.session_state.reaction_questions[i]
