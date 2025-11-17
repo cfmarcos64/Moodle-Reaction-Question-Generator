@@ -79,11 +79,12 @@ TEXTS = {
         "jsme_partial": "Parcial: **{} de {}** normalizadas",
         "jsme_error": "Ninguna normalizada",
         "normalize_first": "Primero normaliza con JSME",
-        "bulk_error_empty_missing": "la columna Missing_Name está vacía.",
-        "bulk_error_no_rp": "No se encontraron reactivos (R*) ni productos (P*).",
+        "bulk_row_prefix": "La fila {}",
+        "bulk_error_empty_missing": "no se ha podido procesar: la columna Missing_Name está vacía.",
+        "bulk_error_no_rp": "no se ha podido procesar: No se encontraron reactivos (R*) ni productos (P*).",
         "bulk_error_smiles_not_found": "no se ha podido procesar porque no se ha encontrado el SMILES de '{}'.",
-        "bulk_error_missing_not_in_reaction": "La molécula faltante ('{}') se encontró, pero no forma parte de los reactivos/productos de esa fila.",
-        "bulk_error_image_failed": "Error al generar la imagen de reacción.",
+        "bulk_error_missing_not_in_reaction": "no se ha podido procesar: La molécula faltante ('{}') se encontró, pero no forma parte de los reactivos/productos de esa fila.",
+        "bulk_error_image_failed": "no se ha podido procesar: Error al generar la imagen de reacción.",
         "bulk_summary_success": "Completado: {} añadidas, {} fallaron.",
         "bulk_summary_title": "❌ Filas Omitidas ({} Fallaron)"
     },
@@ -129,11 +130,12 @@ TEXTS = {
         "jsme_partial": "Partial: **{} of {}** normalized",
         "jsme_error": "None normalized",
         "normalize_first": "First normalize with JSME",
-        "bulk_error_empty_missing": "the Missing_Name column is empty.",
-        "bulk_error_no_rp": "No reactants (R*) or products (P*) were found.",
+        "bulk_row_prefix": "Row {}",
+        "bulk_error_empty_missing": "could not be processed: the Missing_Name column is empty.",
+        "bulk_error_no_rp": "could not be processed: No reactants (R*) or products (P*) were found.",
         "bulk_error_smiles_not_found": "could not be processed because the SMILES for '{}' was not found.",
-        "bulk_error_missing_not_in_reaction": "The missing molecule ('{}') was found, but it is not part of the reactants/products in this row.",
-        "bulk_error_image_failed": "Error generating the reaction image.",
+        "bulk_error_missing_not_in_reaction": "could not be processed: The missing molecule ('{}') was found, but it is not part of the reactants/products in this row.",
+        "bulk_error_image_failed": "could not be processed: Error generating the reaction image.",
         "bulk_summary_success": "Completed: {} added, {} failed.",
         "bulk_summary_title": "❌ Skipped Rows ({} Failed)"
     }
@@ -437,6 +439,7 @@ def process_bulk_file(uploaded_file):
     for idx, row in df.iterrows():
         # Calcular el número de fila real del archivo (1 para encabezado + índice 0-based)
         row_num = idx + 2
+        row_prefix = texts["bulk_row_prefix"].format(row_num)
         status_text.text(f"Processing row {row_num}...")
         progress_bar.progress((idx + 1) / len(df))
 
@@ -444,8 +447,7 @@ def process_bulk_file(uploaded_file):
         missing_name_raw = row.get('Missing_Name')
         if pd.isna(missing_name_raw) or str(missing_name_raw).strip() == '':
             failed += 1
-            # 💡 Uso de texto multilingüe
-            logs.append(f"La fila {row_num} {texts['bulk_error_empty_missing']}")
+            logs.append(f"{row_prefix} {texts['bulk_error_empty_missing']}")
             continue
         missing_name = str(missing_name_raw).strip()
 
@@ -487,12 +489,12 @@ def process_bulk_file(uploaded_file):
 
         if not raw_reactants and not raw_products:
             failed += 1
-            logs.append(f"La fila {row_num} no se ha podido procesar: {texts['bulk_error_no_rp']}")
+            logs.append(f"{row_prefix} {texts['bulk_error_no_rp']}")
             continue
         
         # --- Helper for custom log message ---
         def log_smiles_error(mol_name):
-            return f"La fila {row_num} {texts['bulk_error_smiles_not_found'].format(mol_name)}"
+            return f"{row_prefix} {texts['bulk_error_smiles_not_found'].format(mol_name)}"
         # ------------------------------------
 
         # === 5. Convert to SMILES (Restored functional logic using for/else) ===
@@ -527,14 +529,14 @@ def process_bulk_file(uploaded_file):
                 # Missing Molecule must be in the reaction
                 elif missing_smiles not in (reactants_smiles + products_smiles):
                     failed += 1
-                    logs.append(f"La fila {row_num} no se ha podido procesar: {texts['bulk_error_missing_not_in_reaction'].format(missing_name)}")
+                    logs.append(f"{row_prefix} {texts['bulk_error_missing_not_in_reaction'].format(missing_name)}")
                 
                 # === 6. Question Generation (if all is correct) ===
                 else:
                     img = generate_reaction_image(reactants_smiles, products_smiles, missing_smiles)
                     if not img:
                         failed += 1
-                        logs.append(f"La fila {row_num} no se ha podido procesar: {texts['bulk_error_image_failed']}")
+                        logs.append(f"{row_prefix} {texts['bulk_error_image_failed']}")
                     else:
                         st.session_state.reaction_questions.append({
                             'name': reaction_name,
