@@ -56,7 +56,7 @@ TEXTS = {
         "incorrect_feedback_label": "Retroalimentación Incorrecta (Opcional):",
         "add_reaction_button": "Añadir Reacción",
         "bulk_info": "### Carga Masiva\nSube un archivo Excel/CSV con columnas:\n"
-                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, 'Correct_Feedback', 'Incorrect_Feedback', 'Reaction_Name'",
+                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, `Correct_Feedback`, `Incorrect_Feedback`, `Reaction_Name`",
         "upload_file_label": "Selecciona archivo Excel/CSV:",
         "process_bulk_button": "Procesar Archivo",
         "processing_bulk": "Procesando {} filas...",
@@ -99,7 +99,7 @@ TEXTS = {
         "incorrect_feedback_label": "Incorrect Feedback (Optional):",
         "add_reaction_button": "Add Reaction",
         "bulk_info": "### Bulk Upload\nUpload Excel/CSV with columns:\n"
-                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, 'Correct_Feedback', 'Incorrect_Feedback', 'Reaction_Name'",
+                     "`R1`, `R2`, ..., `P1`, `P2`, ...,`Missing_Name`, `Correct_Feedback`, `Incorrect_Feedback`, `Reaction_Name`",
         "upload_file_label": "Select Excel/CSV file:",
         "process_bulk_button": "Process File",
         "processing_bulk": "Processing {} rows...",
@@ -419,14 +419,16 @@ def process_bulk_file(uploaded_file):
 
     # --- PRINCIPAL LOOP ---
     for idx, row in df.iterrows():
-        status_text.text(f"Processing row {idx + 2}...")
+        # Calcular el número de fila real del archivo (1 para encabezado + índice 0-based)
+        row_num = idx + 2
+        status_text.text(f"Processing row {row_num}...")
         progress_bar.progress((idx + 1) / len(df))
 
         # === 1. Missing_Name ===
         missing_name_raw = row.get('Missing_Name')
         if pd.isna(missing_name_raw) or str(missing_name_raw).strip() == '':
             failed += 1
-            logs.append(f"Row {idx+2}: Missing_Name is empty")
+            logs.append(f"La fila {row_num} no se ha podido procesar: la columna Missing_Name está vacía.")
             continue
         missing_name = str(missing_name_raw).strip()
 
@@ -455,7 +457,8 @@ def process_bulk_file(uploaded_file):
         raw_reactants = []
         raw_products = []
         for col in df.columns:
-            if col not in ['Missing_Name', 'Reaction_Name', 'Correct_Feedback', 'Incorrect_Feedback']:
+            # Identificar R* y P* y no las columnas de metadatos
+            if col.startswith(('R', 'P')) and col not in ['Missing_Name', 'Reaction_Name', 'Correct_Feedback', 'Incorrect_Feedback']:
                 val = row.get(col)
                 if pd.notna(val):
                     s = str(val).strip()
@@ -467,42 +470,54 @@ def process_bulk_file(uploaded_file):
 
         if not raw_reactants and not raw_products:
             failed += 1
-            logs.append(f"Row {idx+2}: No reactants or products")
+            logs.append(f"La fila {row_num} no se ha podido procesar: No se encontraron reactivos (R*) ni productos (P*).")
             continue
+        
+        # --- Helper for custom log message ---
+        def log_smiles_error(mol_name):
+            return f"La fila {row_num} no se ha podido procesar porque no se ha encontrado el SMILES de '{mol_name}'."
+        # ------------------------------------
 
-        # === 5. Convert to SMILES ===
+        # === 5. Convert to SMILES (Restored functional logic using for/else) ===
         reactants_smiles = []
         products_smiles = []
         missing_smiles = None
 
+        # Reactivos
         for name in raw_reactants:
             smiles = name_to_smiles(name)
             if not smiles:
                 failed += 1
-                logs.append(f"Row {idx+2}: Reactant '{name}' → not found")
+                logs.append(log_smiles_error(name)) # Nuevo formato
                 break
             reactants_smiles.append(smiles)
         else:
+            # Productos
             for name in raw_products:
                 smiles = name_to_smiles(name)
                 if not smiles:
                     failed += 1
-                    logs.append(f"Row {idx+2}: Product '{name}' → not found")
+                    logs.append(log_smiles_error(name)) # Nuevo formato
                     break
                 products_smiles.append(smiles)
             else:
+                # Molécula Faltante
                 missing_smiles = name_to_smiles(missing_name)
                 if not missing_smiles:
                     failed += 1
-                    logs.append(f"Row {idx+2}: Missing '{missing_name}' → not found")
+                    logs.append(log_smiles_error(missing_name)) # Nuevo formato
+                
+                # Molécula Faltante DEBE estar en la reacción
                 elif missing_smiles not in (reactants_smiles + products_smiles):
                     failed += 1
-                    logs.append(f"Row {idx+2}: Missing not in reaction")
+                    logs.append(f"La fila {row_num} no se ha podido procesar: La molécula faltante ('{missing_name}') se encontró, pero no forma parte de los reactivos/productos de esa fila.")
+                
+                # === 6. Generación de Pregunta (si todo es correcto) ===
                 else:
                     img = generate_reaction_image(reactants_smiles, products_smiles, missing_smiles)
                     if not img:
                         failed += 1
-                        logs.append(f"Row {idx+2}: Image failed")
+                        logs.append(f"La fila {row_num} no se ha podido procesar: Error al generar la imagen de reacción.")
                     else:
                         st.session_state.reaction_questions.append({
                             'name': reaction_name,
@@ -516,16 +531,27 @@ def process_bulk_file(uploaded_file):
     # --- Finalize ---
     progress_bar.empty()
     status_text.empty()
+    
+    # 💡 FIX 1: Almacenar los mensajes en st.session_state
+    # Se inicializan o se limpian antes de almacenar el resultado
+    st.session_state.bulk_success_message = None
+    st.session_state.bulk_error_logs = None
 
     if added > 0:
-        st.success(f"Completed: {added} added, {failed} failed.")
+        # Almacenar mensaje de éxito
+        st.session_state.bulk_success_message = f"Completado: {added} añadidas, {failed} fallaron."
+        
     if failed > 0:
-        with st.expander(f"Failed rows ({failed})"):
-            for log in logs:
-                st.caption(log)
+        # Almacenar logs de error y el conteo
+        st.session_state.bulk_error_logs = {
+            'count': failed,
+            'logs': logs
+        }
 
     st.session_state.jsme_normalized = False
-    if added > 0:
+    
+    # FIX CRÍTICO: Refrescar si se añadió algo O si algo falló.
+    if added > 0 or failed > 0:
         st.rerun()
 
 # ========================================================================
@@ -726,6 +752,22 @@ with input_col:
                 process_bulk_file(uploaded)
         else:
             st.info("Upload a file to process.")
+            
+        if 'bulk_success_message' in st.session_state and st.session_state.bulk_success_message:
+            st.success(st.session_state.bulk_success_message)
+            # Opcional: limpiar para que el mensaje no se vea en recargas posteriores
+            # del resto de widgets, aunque generalmente no es necesario si la app es lineal
+            # del st.file_uploader.
+            # del st.session_state.bulk_success_message 
+        
+        if 'bulk_error_logs' in st.session_state and st.session_state.bulk_error_logs:
+            failed = st.session_state.bulk_error_logs['count']
+            logs = st.session_state.bulk_error_logs['logs']
+            
+            title = "❌ Filas Omitidas ({} Fallaron)".format(failed)
+            with st.expander(title):
+                for log in logs:
+                    st.caption(log)
 
 # === OUTPUT COLUMN ===
 with list_col:
